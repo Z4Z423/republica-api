@@ -23,8 +23,31 @@ app.use(cors({
 // === Google Calendar auth (Service Account) ===
 // Você precisa compartilhar sua agenda com o e-mail da Service Account (permissão "Fazer alterações em eventos")
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID; // ex: napraiasjp@gmail.com ou ID da agenda
-const SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+
+// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 do arquivo .json)
+let SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 let SA_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+
+const SA_JSON_B64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
+const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // (opcional) JSON em texto
+
+function loadServiceAccountFromEnv(){
+  try{
+    let raw = null;
+    if(SA_JSON_B64){
+      raw = Buffer.from(SA_JSON_B64, 'base64').toString('utf8');
+    } else if(SA_JSON_RAW){
+      raw = SA_JSON_RAW;
+    }
+    if(!raw) return;
+    const obj = JSON.parse(raw);
+    if(obj.client_email) SA_EMAIL = obj.client_email;
+    if(obj.private_key) SA_PRIVATE_KEY = obj.private_key;
+  }catch(e){
+    // se der erro, mantém o modo antigo por env vars
+  }
+}
+loadServiceAccountFromEnv();
 
 if (SA_PRIVATE_KEY) {
   // Render/Heroku geralmente guardam com \n literal
@@ -34,8 +57,11 @@ if (SA_PRIVATE_KEY) {
 function requireEnv(){
   const missing = [];
   if(!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
-  if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL');
-  if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY');
+
+  // Se você usar GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, não precisa setar EMAIL/KEY separados.
+  if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+  if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+
   return missing;
 }
 
@@ -91,13 +117,17 @@ function classifyEventToCourts(summary=''){
 
 async function listEventsForDay(dateStr){
   // busca eventos do dia inteiro (00:00 a 23:59) no TZ
-  const timeMin = new Date(`${dateStr}T00:00:00`).toISOString();
-  const timeMax = new Date(`${dateStr}T23:59:59`).toISOString();
+  // IMPORTANT... treat as UTC in some runtimes -> breaks overlap checks.
+  // Use explicit offset (America/Sao_Paulo is currently UTC-03:00) and also request
+  // times in our timezone.
+  const timeMin = `${dateStr}T00:00:00-03:00`;
+  const timeMax = `${dateStr}T23:59:59-03:00`;
 
   const resp = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin,
     timeMax,
+    timeZone: TZ,
     singleEvents: true,
     orderBy: 'startTime'
   });
@@ -113,10 +143,24 @@ async function listEventsForDay(dateStr){
 // Converte dateTime ISO para minutos desde 00:00 na data do slot.
 // Para simplificar, usamos o texto "HH:MM" extraído do start/end se for dateTime.
 function isoToMinutes(iso){
-  // iso pode vir com timezone; pega HH:MM do string (funciona para formato 2026-01-29T18:00:00-03:00)
-  const m = String(iso).match(/T(\d{2}):(\d{2})/);
-  if(!m) return 0;
-  return Number(m[1])*60 + Number(m[2]);
+  // Google pode devolver em UTC (…Z) dependendo da request.
+  // Para não errar, converte para Date e extrai HH:MM no fuso TZ.
+  try {
+    const d = new Date(iso);
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: TZ,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+    const hh = Number(parts.find(p => p.type === 'hour')?.value ?? '0');
+    const mm = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
+    return hh * 60 + mm;
+  } catch {
+    const m = String(iso).match(/T(\d{2}):(\d{2})/);
+    if(!m) return 0;
+    return Number(m[1])*60 + Number(m[2]);
+  }
 }
 
 function computeAvailability(events, duration){
