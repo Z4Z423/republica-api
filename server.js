@@ -9,6 +9,14 @@ app.use(express.json({ limit: '1mb' }));
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
+// Não há locação avulsa aos sábados e domingos
+function isWeekendDate(dateStr){
+  // Usa meio-dia no fuso -03:00 para evitar variações; fim de semana independe para a data local
+  const d = new Date(dateStr + 'T12:00:00-03:00');
+  const day = d.getUTCDay(); // 0=dom,6=sab
+  return day === 0 || day === 6;
+}
+
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
 app.use(cors({
