@@ -140,21 +140,49 @@ async function listEventsForDay(dateStr){
     orderBy: 'startTime'
   });
 
-  return (resp.data.items || []).map(ev => ({
+  const items = (resp.data.items || []).map(ev => ({
     id: ev.id,
     summary: ev.summary || '',
-    start: ev.start?.dateTime || ev.start?.date, // dateTime preferido
+    description: ev.description || '',
+    location: ev.location || '',
+    start: ev.start?.dateTime || ev.start?.date,
     end: ev.end?.dateTime || ev.end?.date
   }));
+
+  // Dedup defensivo
+  const seen = new Set();
+  const uniq = [];
+  for(const it of items){
+    const key = `${it.id}|${it.start}|${it.end}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(it);
+  }
+
+  return uniq;
 }
 
 // Converte dateTime ISO para minutos desde 00:00 na data do slot.
 // Para simplificar, usamos o texto "HH:MM" extraído do start/end se for dateTime.
 function isoToMinutes(iso){
-  // Google pode devolver em UTC (…Z) dependendo da request.
-  // Para não errar, converte para Date e extrai HH:MM no fuso TZ.
+  if(!iso) return 0;
+  const s = String(iso);
+
+  // Eventos all-day chegam como "YYYY-MM-DD" (sem horário)
+  if(s.length <= 10) return 0;
+
+  // Se vier com offset (ex: ...-03:00), o HH:MM do texto já é o horário local do evento.
+  // Isso evita erros de fuso/Intl em alguns ambientes.
+  const m = s.match(/T(\d{2}):(\d{2})/);
+  const endsWithZ = /Z$/.test(s);
+
+  if(m && !endsWithZ){
+    return Number(m[1]) * 60 + Number(m[2]);
+  }
+
+  // Se vier em UTC (...Z) ou formato inesperado, converte para o fuso TZ.
   try {
-    const d = new Date(iso);
+    const d = new Date(s);
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: TZ,
       hour: '2-digit',
@@ -165,9 +193,10 @@ function isoToMinutes(iso){
     const mm = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
     return hh * 60 + mm;
   } catch {
-    const m = String(iso).match(/T(\d{2}):(\d{2})/);
-    if(!m) return 0;
-    return Number(m[1])*60 + Number(m[2]);
+    if(m){
+      return Number(m[1]) * 60 + Number(m[2]);
+    }
+    return 0;
   }
 }
 
