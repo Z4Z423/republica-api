@@ -9,14 +9,6 @@ app.use(express.json({ limit: '1mb' }));
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
-// Não há locação avulsa aos sábados e domingos
-function isWeekendDate(dateStr){
-  // Usa meio-dia no fuso -03:00 para evitar variações; fim de semana independe para a data local
-  const d = new Date(dateStr + 'T12:00:00-03:00');
-  const day = d.getUTCDay(); // 0=dom,6=sab
-  return day === 0 || day === 6;
-}
-
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
 app.use(cors({
@@ -83,10 +75,19 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
 
-// Converte "YYYY-MM-DD" + "HH:MM" para ISO com timezone (Google aceita offset via dateTime)
+// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
+// O Google usa o timeZone do requestBody para interpretar corretamente.
 function toDateTimeISO(dateStr, timeStr){
-  // Usa "YYYY-MM-DDTHH:MM:00" e deixa o Google interpretar no TZ informado no request
   return `${dateStr}T${timeStr}:00`;
+}
+
+// ====== Regras de disponibilidade ======
+// Locação avulsa NÃO disponível em sábado/domingo
+function isWeekend(dateStr){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0)); // meio-dia UTC evita "virar dia" por fuso
+  const dow = dt.getUTCDay(); // 0=Dom, 6=Sáb
+  return dow === 0 || dow === 6;
 }
 
 // Gera lista de slots entre 18:00 e 23:00 (inicio inclusive, fim exclusivo)
@@ -98,10 +99,7 @@ function generateSlots(durationMinutes){
   for(let t = startHour*60; t <= lastStart; t += 60){
     const sh = Math.floor(t/60), sm = t%60;
     const eh = Math.floor((t+durationMinutes)/60), em = (t+durationMinutes)%60;
-    slots.push({
-      start: `${pad(sh)}:${pad(sm)}`,
-      end: `${pad(eh)}:${pad(em)}`
-    });
+    slots.push({ start: `${pad(sh)}:${pad(sm)}`, end: `${pad(eh)}:${pad(em)}` });
   }
   return slots;
 }
@@ -110,24 +108,51 @@ function overlaps(aStart, aEnd, bStart, bEnd){
   return (aStart < bEnd) && (bStart < aEnd);
 }
 
-function classifyEventToCourts(summary=''){
-  const s = summary.toLowerCase();
-  const q1 = s.includes('quadra 1') || s.includes('q1') || s.includes('quadra1');
-  const q2 = s.includes('quadra 2') || s.includes('q2') || s.includes('quadra2');
+// ====== Classificação de eventos para quadras ======
+// 1) Se o evento tem "Quadra 1/2" (ou Q1/Q2) no título/descrição/local → usa isso.
+// 2) Se não tiver, tenta mapear por palavras-chave (configurável).
+// 3) Se ainda assim não der, considera "ocupando 1 quadra (desconhecida)".
+//    Isso resolve o bug de aparecer 0 quadras quando existe só 1 aula no horário.
+let DEFAULT_KEYWORD_MAP = [
+  { pattern: 'futevolei|futvolei|futev[oó]lei', court: 1 },
+  { pattern: 'v[oó]lei(?!.*fute)', court: 2 },
+  { pattern: 'beach\s*tennis|\bbt\b', court: 2 }
+];
 
-  if(q1 && !q2) return { blockBoth:false, courts:[1] };
-  if(q2 && !q1) return { blockBoth:false, courts:[2] };
-  if(q1 && q2) return { blockBoth:true, courts:[1,2] };
+try{
+  if(process.env.COURT_KEYWORDS_JSON){
+    const parsed = JSON.parse(process.env.COURT_KEYWORDS_JSON);
+    if(Array.isArray(parsed) && parsed.length) DEFAULT_KEYWORD_MAP = parsed;
+  }
+}catch(e){ /* ignora */ }
 
-  // Se não indicar quadra, por segurança bloqueia as duas (pode ser aula/evento)
-  return { blockBoth:true, courts:[1,2] };
+function classifyEventToCourts(ev){
+  const text = `${ev.summary||''} ${ev.description||''} ${ev.location||''}`.toLowerCase();
+
+  const q1 = text.includes('quadra 1') || text.includes('q1') || text.includes('quadra1');
+  const q2 = text.includes('quadra 2') || text.includes('q2') || text.includes('quadra2');
+
+  if(q1 && !q2) return { kind:'known', courts:[1], blockBoth:false };
+  if(q2 && !q1) return { kind:'known', courts:[2], blockBoth:false };
+  if(q1 && q2) return { kind:'known', courts:[1,2], blockBoth:true };
+
+  // keyword mapping
+  for(const rule of DEFAULT_KEYWORD_MAP){
+    try{
+      const re = new RegExp(rule.pattern, 'i');
+      if(re.test(text)){
+        const c = Number(rule.court);
+        if(c === 1 || c === 2) return { kind:'known', courts:[c], blockBoth:false };
+      }
+    }catch(e){ /* ignora regra inválida */ }
+  }
+
+  // fallback: ocupa 1 quadra sem especificar qual
+  return { kind:'unknownSingle', courts:[], blockBoth:false };
 }
 
 async function listEventsForDay(dateStr){
   // busca eventos do dia inteiro (00:00 a 23:59) no TZ
-  // IMPORTANT... treat as UTC in some runtimes -> breaks overlap checks.
-  // Use explicit offset (America/Sao_Paulo is currently UTC-03:00) and also request
-  // times in our timezone.
   const timeMin = `${dateStr}T00:00:00-03:00`;
   const timeMax = `${dateStr}T23:59:59-03:00`;
 
@@ -140,47 +165,28 @@ async function listEventsForDay(dateStr){
     orderBy: 'startTime'
   });
 
-  const items = (resp.data.items || []).map(ev => ({
+  return (resp.data.items || []).map(ev => ({
     id: ev.id,
     summary: ev.summary || '',
     description: ev.description || '',
     location: ev.location || '',
-    start: ev.start?.dateTime || ev.start?.date,
+    start: ev.start?.dateTime || ev.start?.date, // dateTime preferido
     end: ev.end?.dateTime || ev.end?.date
   }));
-
-  // Dedup defensivo
-  const seen = new Set();
-  const uniq = [];
-  for(const it of items){
-    const key = `${it.id}|${it.start}|${it.end}`;
-    if(seen.has(key)) continue;
-    seen.add(key);
-    uniq.push(it);
-  }
-
-  return uniq;
 }
 
-// Converte dateTime ISO para minutos desde 00:00 na data do slot.
-// Para simplificar, usamos o texto "HH:MM" extraído do start/end se for dateTime.
+// Converte dateTime ISO para minutos desde 00:00 em TZ.
+// - Se ISO já tiver offset (ex.: -03:00), pegamos HH:MM do texto direto (mais fiel).
+// - Se vier em UTC (…Z), converte com Intl no fuso TZ.
 function isoToMinutes(iso){
-  if(!iso) return 0;
-  const s = String(iso);
-
-  // Eventos all-day chegam como "YYYY-MM-DD" (sem horário)
-  if(s.length <= 10) return 0;
-
-  // Se vier com offset (ex: ...-03:00), o HH:MM do texto já é o horário local do evento.
-  // Isso evita erros de fuso/Intl em alguns ambientes.
-  const m = s.match(/T(\d{2}):(\d{2})/);
-  const endsWithZ = /Z$/.test(s);
-
-  if(m && !endsWithZ){
-    return Number(m[1]) * 60 + Number(m[2]);
+  const s = String(iso || '');
+  // Caso comum: 2026-02-12T18:00:00-03:00  → usa 18:00 direto
+  const mOffset = s.match(/T(\d{2}):(\d{2}).*([+-]\d{2}:?\d{2})$/);
+  if(mOffset){
+    return Number(mOffset[1]) * 60 + Number(mOffset[2]);
   }
 
-  // Se vier em UTC (...Z) ou formato inesperado, converte para o fuso TZ.
+  // Caso UTC: ...Z
   try {
     const d = new Date(s);
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -193,31 +199,28 @@ function isoToMinutes(iso){
     const mm = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
     return hh * 60 + mm;
   } catch {
-    if(m){
-      return Number(m[1]) * 60 + Number(m[2]);
-    }
-    return 0;
+    const m = s.match(/T(\d{2}):(\d{2})/);
+    if(!m) return 0;
+    return Number(m[1])*60 + Number(m[2]);
   }
 }
 
 function computeAvailability(events, duration){
   const baseSlots = generateSlots(duration);
-  const out = baseSlots.map(s => ({
-    ...s,
-    availableCourts: 2
-  }));
+  const out = baseSlots.map(s => ({ ...s, availableCourts: 2 }));
 
   for(const slot of out){
     const slotStartMin = Number(slot.start.split(':')[0])*60 + Number(slot.start.split(':')[1]);
     const slotEndMin = Number(slot.end.split(':')[0])*60 + Number(slot.end.split(':')[1]);
 
-    // começa com as duas quadras livres
-    let free = new Set([1,2]);
+    let busyKnown = new Set();  // quadras conhecidas ocupadas
+    let unknownCount = 0;       // eventos sem quadra definida (ocupam 1 quadra)
 
     for(const ev of events){
-      // ignora eventos all-day (sem horário) — se existir, deve bloquear tudo
+      // all-day bloqueia tudo
       if(String(ev.start).length <= 10) {
-        free = new Set(); 
+        busyKnown = new Set([1,2]);
+        unknownCount = 0;
         break;
       }
 
@@ -225,17 +228,25 @@ function computeAvailability(events, duration){
       const evEndMin = isoToMinutes(ev.end);
 
       if(overlaps(slotStartMin, slotEndMin, evStartMin, evEndMin)){
-        const cls = classifyEventToCourts(ev.summary);
+        const cls = classifyEventToCourts(ev);
+
         if(cls.blockBoth){
-          free = new Set();
+          busyKnown = new Set([1,2]);
+          unknownCount = 0;
           break;
-        }else{
-          cls.courts.forEach(c => free.delete(c));
+        }
+
+        if(cls.kind === 'known'){
+          cls.courts.forEach(c => busyKnown.add(c));
+        }else if(cls.kind === 'unknownSingle'){
+          unknownCount += 1;
         }
       }
     }
 
-    slot.availableCourts = free.size;
+    const remainingAfterKnown = Math.max(0, 2 - busyKnown.size);
+    const unknownConsumes = Math.min(unknownCount, remainingAfterKnown);
+    slot.availableCourts = Math.max(0, remainingAfterKnown - unknownConsumes);
   }
 
   return out;
@@ -266,6 +277,10 @@ app.get('/api/slots', async (req,res)=>{
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
     if(![60,120].includes(duration)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
 
+    if(isWeekend(date)){
+      return res.json({ date, duration, slots: [] , weekendBlocked:true });
+    }
+
     await ensureAuth();
     const events = await listEventsForDay(date);
     const slots = computeAvailability(events, duration);
@@ -291,6 +306,10 @@ app.post('/api/book', async (req,res)=>{
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
+    if(isWeekend(String(date))){
+      return res.status(409).json({ error:'Sábado e domingo não possuem locação avulsa.' });
+    }
+
     // calcula end
     const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
@@ -299,9 +318,9 @@ app.post('/api/book', async (req,res)=>{
     const end = `${pad(endH)}:${pad(endM)}`;
 
     await ensureAuth();
-    const events = await listEventsForDay(date);
+    const events = await listEventsForDay(String(date));
 
-    // Checa disponibilidade e decide quadra
+    // Eventos que batem com o intervalo
     const slotEvents = events.filter(ev=>{
       if(String(ev.start).length <= 10) return true; // all-day bloqueia
       const evStartMin = isoToMinutes(ev.start);
@@ -309,35 +328,49 @@ app.post('/api/book', async (req,res)=>{
       return overlaps(startMin, endMin, evStartMin, evEndMin);
     });
 
-    // se tem qualquer evento sem quadra -> bloqueia tudo
+    // Se existir all-day => indisponível
+    if(slotEvents.some(ev => String(ev.start).length <= 10)){
+      return res.status(409).json({ error:'Esse horário está indisponível.' });
+    }
+
+    // Calcula ocupação: quadras conhecidas + quantidade de eventos "unknownSingle"
+    const busyKnown = new Set();
+    let unknownCount = 0;
+
     for(const ev of slotEvents){
-      const cls = classifyEventToCourts(ev.summary);
+      const cls = classifyEventToCourts(ev);
       if(cls.blockBoth){
         return res.status(409).json({ error:'Esse horário está indisponível.' });
       }
+      if(cls.kind === 'known'){
+        cls.courts.forEach(c => busyKnown.add(c));
+      }else if(cls.kind === 'unknownSingle'){
+        unknownCount += 1;
+      }
     }
 
-    const busy = new Set();
-    for(const ev of slotEvents){
-      const cls = classifyEventToCourts(ev.summary);
-      cls.courts.forEach(c => busy.add(c));
-    }
-
-    const freeCourts = [1,2].filter(c=>!busy.has(c));
-    if(freeCourts.length === 0){
+    const totalBusy = Math.min(2, busyKnown.size + unknownCount);
+    if(totalBusy >= 2){
       return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
     }
 
-    const chosen = freeCourts[0];
+    // Escolhe uma quadra livre (prioriza a que NÃO está em busyKnown)
+    const freeCourts = [1,2].filter(c=>!busyKnown.has(c));
+    const chosen = freeCourts[0] ?? 1;
 
     // cria evento no calendário
     const summary = `Locação Avulsa — Quadra ${chosen}`;
-    const description = `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n`;
+    const warning = (unknownCount > 0 && busyKnown.size === 0)
+      ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
+      : '';
+    const description =
+      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
+
     const event = {
       summary,
       description,
-      start: { dateTime: toDateTimeISO(date, start), timeZone: TZ },
-      end: { dateTime: toDateTimeISO(date, end), timeZone: TZ }
+      start: { dateTime: toDateTimeISO(String(date), String(start)), timeZone: TZ },
+      end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
     };
 
     const created = await calendar.events.insert({
