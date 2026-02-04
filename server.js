@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
-import crypto from 'crypto';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -76,10 +75,53 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
 
-// Código curto para cancelamento (mostrado ao cliente e salvo no evento)
-function genCancelCode(){
-  // 6 caracteres (hex) é fácil pro cliente digitar e suficientemente imprevisível
-  return crypto.randomBytes(4).toString('hex').slice(0,6).toUpperCase();
+function normalizePhone(s){
+  return String(s||'').replace(/\D+/g,''); // only digits
+}
+
+function extractPhoneFromEvent(ev){
+  const hay = `${ev.summary||''}\n${ev.description||''}\n${ev.location||''}`;
+  const m = hay.match(/WhatsApp:\s*([^\n]+)/i);
+  if(!m) return '';
+  return normalizePhone(m[1]);
+}
+
+async function listUpcomingReservationsByPhone(phoneDigits){
+  await ensureAuth();
+  const now = new Date();
+  const timeMin = now.toISOString();
+  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString(); // 120 days
+  const resp = await calendar.events.list({
+    calendarId: CALENDAR_ID,
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 2500
+  });
+  const items = (resp.data.items || []).map(e=>({
+    id: e.id,
+    summary: e.summary || '',
+    description: e.description || '',
+    location: e.location || '',
+    start: e.start?.dateTime || e.start?.date || '',
+    end: e.end?.dateTime || e.end?.date || ''
+  }));
+  const out = [];
+  for(const ev of items){
+    if(!ev.start || String(ev.start).length<=10) continue; // ignore all-day
+    const ph = extractPhoneFromEvent(ev);
+    if(!ph) continue;
+    if(ph === phoneDigits){
+      out.push({
+        eventId: ev.id,
+        summary: ev.summary,
+        start: ev.start,
+        end: ev.end
+      });
+    }
+  }
+  return out;
 }
 
 // Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
@@ -366,13 +408,12 @@ app.post('/api/book', async (req,res)=>{
     const chosen = freeCourts[0] ?? 1;
 
     // cria evento no calendário
-    const cancelCode = genCancelCode();
     const summary = `Locação Avulsa — Quadra ${chosen}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
     const description =
-      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\nCancelCode: ${cancelCode}\n${warning}`;
+      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -391,8 +432,7 @@ app.post('/api/book', async (req,res)=>{
       court: `Quadra ${chosen}`,
       start,
       end,
-      eventId: created.data.id,
-      cancelCode
+      eventId: created.data.id
     });
   }catch(e){
     console.error(e);
@@ -400,45 +440,90 @@ app.post('/api/book', async (req,res)=>{
   }
 });
 
-// Cancelamento (cliente precisa do eventId + WhatsApp e/ou cancelCode)
-app.post('/api/cancel', async (req,res)=>{
+
+// =========================
+// Cancelamento por telefone (somente)
+// =========================
+app.post('/api/cancel_lookup', async (req,res)=>{
   try{
     const missing = requireEnv();
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
+    const { phone } = req.body || {};
+    const phoneDigits = normalizePhone(phone);
+    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
 
-    const { eventId, phone, cancelCode } = req.body || {};
-    if(!String(eventId||'').trim()) return res.status(400).json({ error:'eventId é obrigatório' });
-    if(!String(phone||'').trim()) return res.status(400).json({ error:'phone é obrigatório' });
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
 
-    await ensureAuth();
-
-    // Busca o evento para validar que pertence ao solicitante
-    const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: String(eventId) });
-    const desc = String(ev?.data?.description || '');
-    const phoneOk = desc.toLowerCase().includes(String(phone).trim().toLowerCase());
-    if(!phoneOk){
-      return res.status(403).json({ error:'Não foi possível validar esse agendamento para este WhatsApp.' });
+    if(!reservations.length){
+      return res.json({ ok:true, reservations: [] });
     }
 
-    // Se houver cancelCode no evento, exige bater (mais seguro)
-    const m = desc.match(/CancelCode:\s*([A-Z0-9]{4,12})/i);
-    if(m){
-      const codeInEvent = String(m[1]||'').trim().toUpperCase();
-      const codeReq = String(cancelCode||'').trim().toUpperCase();
-      if(!codeReq || codeReq !== codeInEvent){
-        return res.status(403).json({ error:'Código de cancelamento inválido.' });
-      }
-    }
+    // formata para o front (data/hora local)
+    const formatted = reservations.map(r => {
+      const start = r.start;
+      const end = r.end;
+      // pega "YYYY-MM-DD" e "HH:MM"
+      const date = String(start).slice(0,10);
+      const hhmm = String(start).slice(11,16);
+      const ehhmm = String(end).slice(11,16);
+      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
+      return {
+        eventId: r.eventId,
+        date,
+        start: hhmm,
+        end: ehhmm,
+        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
+        summary: r.summary || ''
+      };
+    });
 
-    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: String(eventId) });
-    return res.json({ ok:true });
+    return res.json({ ok:true, reservations: formatted });
   }catch(e){
     console.error(e);
-    return res.status(500).json({ error:'Erro ao cancelar reserva.' });
+    res.status(500).json({ error:'Erro ao buscar reservas.' });
   }
 });
+
+app.post('/api/cancel_by_phone', async (req,res)=>{
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+    const { phone, eventId } = req.body || {};
+    const phoneDigits = normalizePhone(phone);
+    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+
+    if(!eventId){
+      // se não veio eventId, tenta cancelar a próxima reserva
+      const list = await listUpcomingReservationsByPhone(phoneDigits);
+      if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse telefone.' });
+      // pega a primeira (mais próxima)
+      const pick = list[0];
+      await ensureAuth();
+      await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: pick.eventId });
+      return res.json({ ok:true, canceledEventId: pick.eventId });
+    }
+
+    // valida que o eventId pertence ao telefone
+    await ensureAuth();
+    const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
+    const desc = ev.data.description || '';
+    const ph = extractPhoneFromEvent({ summary: ev.data.summary||'', description: desc, location: ev.data.location||'' });
+    if(ph !== phoneDigits){
+      return res.status(403).json({ error:'Este telefone não confere com a reserva.' });
+    }
+
+    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
+    return res.json({ ok:true, canceledEventId: eventId });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ error:'Erro ao cancelar reserva.' });
+  }
+});
+
 
 app.listen(PORT, ()=>{
   console.log(`API rodando na porta ${PORT}`);
