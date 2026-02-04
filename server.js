@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
+import crypto from 'crypto';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -74,6 +75,12 @@ const jwtClient = new google.auth.JWT({
 const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
+
+// Código curto para cancelamento (mostrado ao cliente e salvo no evento)
+function genCancelCode(){
+  // 6 caracteres (hex) é fácil pro cliente digitar e suficientemente imprevisível
+  return crypto.randomBytes(4).toString('hex').slice(0,6).toUpperCase();
+}
 
 // Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
 // O Google usa o timeZone do requestBody para interpretar corretamente.
@@ -359,12 +366,13 @@ app.post('/api/book', async (req,res)=>{
     const chosen = freeCourts[0] ?? 1;
 
     // cria evento no calendário
+    const cancelCode = genCancelCode();
     const summary = `Locação Avulsa — Quadra ${chosen}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
     const description =
-      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
+      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\nCancelCode: ${cancelCode}\n${warning}`;
 
     const event = {
       summary,
@@ -383,11 +391,52 @@ app.post('/api/book', async (req,res)=>{
       court: `Quadra ${chosen}`,
       start,
       end,
-      eventId: created.data.id
+      eventId: created.data.id,
+      cancelCode
     });
   }catch(e){
     console.error(e);
     res.status(500).json({ error:'Erro ao criar reserva.' });
+  }
+});
+
+// Cancelamento (cliente precisa do eventId + WhatsApp e/ou cancelCode)
+app.post('/api/cancel', async (req,res)=>{
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+
+    const { eventId, phone, cancelCode } = req.body || {};
+    if(!String(eventId||'').trim()) return res.status(400).json({ error:'eventId é obrigatório' });
+    if(!String(phone||'').trim()) return res.status(400).json({ error:'phone é obrigatório' });
+
+    await ensureAuth();
+
+    // Busca o evento para validar que pertence ao solicitante
+    const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: String(eventId) });
+    const desc = String(ev?.data?.description || '');
+    const phoneOk = desc.toLowerCase().includes(String(phone).trim().toLowerCase());
+    if(!phoneOk){
+      return res.status(403).json({ error:'Não foi possível validar esse agendamento para este WhatsApp.' });
+    }
+
+    // Se houver cancelCode no evento, exige bater (mais seguro)
+    const m = desc.match(/CancelCode:\s*([A-Z0-9]{4,12})/i);
+    if(m){
+      const codeInEvent = String(m[1]||'').trim().toUpperCase();
+      const codeReq = String(cancelCode||'').trim().toUpperCase();
+      if(!codeReq || codeReq !== codeInEvent){
+        return res.status(403).json({ error:'Código de cancelamento inválido.' });
+      }
+    }
+
+    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: String(eventId) });
+    return res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao cancelar reserva.' });
   }
 });
 
