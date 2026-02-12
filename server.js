@@ -139,10 +139,14 @@ function isWeekend(dateStr){
   return dow === 0 || dow === 6;
 }
 
-// Gera lista de slots entre 18:00 e 23:00 (inicio inclusive, fim exclusivo)
-function generateSlots(durationMinutes){
-  const startHour = 18;
-  const endHour = 23;
+// Gera lista de slots conforme dia:
+// - Seg–Sex: 17:00–23:00 (início inclusive, fim exclusivo)
+// - Sáb–Dom: 09:00–19:00 (início inclusive, fim exclusivo)
+function generateSlots(dateISO, durationMinutes){
+  const weekend = isWeekend(String(dateISO||''));
+  const startHour = weekend ? 9 : 17;
+  const endHour   = weekend ? 19 : 23;
+
   const slots = [];
   const lastStart = endHour*60 - durationMinutes;
   for(let t = startHour*60; t <= lastStart; t += 60){
@@ -152,6 +156,7 @@ function generateSlots(durationMinutes){
   }
   return slots;
 }
+
 
 function overlaps(aStart, aEnd, bStart, bEnd){
   return (aStart < bEnd) && (bStart < aEnd);
@@ -254,8 +259,8 @@ function isoToMinutes(iso){
   }
 }
 
-function computeAvailability(events, duration){
-  const baseSlots = generateSlots(duration);
+function computeAvailability(events, duration, date){
+  const baseSlots = generateSlots(date, duration);
   const out = baseSlots.map(s => ({ ...s, availableCourts: 2 }));
 
   for(const slot of out){
@@ -326,13 +331,9 @@ app.get('/api/slots', async (req,res)=>{
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
     if(![60,120].includes(duration)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
 
-    if(isWeekend(date)){
-      return res.json({ date, duration, slots: [] , weekendBlocked:true });
-    }
-
     await ensureAuth();
     const events = await listEventsForDay(date);
-    const slots = computeAvailability(events, duration);
+    const slots = computeAvailability(events, duration, date);
 
     res.json({ date, duration, slots });
   }catch(e){
@@ -355,16 +356,19 @@ app.post('/api/book', async (req,res)=>{
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
-    if(isWeekend(String(date))){
-      return res.status(409).json({ error:'Sábado e domingo não possuem locação avulsa.' });
-    }
-
     // calcula end
     const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
     const endH = Math.floor(endMin/60);
     const endM = endMin%60;
     const end = `${pad(endH)}:${pad(endM)}`;
+
+    // valida se o horário solicitado existe na grade do dia (evita reservas fora do funcionamento)
+    const allowedSlots = generateSlots(String(date), dur);
+    const isValidSlot = allowedSlots.some(s => s.start === String(start) && s.end === String(end));
+    if(!isValidSlot){
+      return res.status(400).json({ error:'Horário inválido para esse dia.' });
+    }
 
     await ensureAuth();
     const events = await listEventsForDay(String(date));
