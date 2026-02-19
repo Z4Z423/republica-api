@@ -6,12 +6,67 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
+
+// ====== E-mail (notificação de reserva) ======
+// Configurar no Render:
+// SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+// (opcional) ADMIN_NOTIFY_EMAIL (default: napraiasjp@gmail.com)
+const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'napraiasjp@gmail.com';
+
+function hasSmtpConfigured(){
+  return !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function makeTransport(){
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = port === 465; // 465 costuma ser SSL
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+}
+
+async function sendReservationEmailToAdmin({ date, start, end, durText, court, name, email, phone, eventId }){
+  if(!hasSmtpConfigured()) return false;
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const transporter = makeTransport();
+
+  const subject = `✅ Nova reserva — ${date} ${start}–${end} (${court})`;
+  const text = [
+    'Nova reserva criada pelo site.',
+    '',
+    `Data: ${date}`,
+    `Horário: ${start}–${end}`,
+    `Duração: ${durText}`,
+    `Quadra: ${court}`,
+    '',
+    `Cliente: ${name}`,
+    `E-mail: ${email}`,
+    `WhatsApp: ${phone}`,
+    '',
+    `EventId (Google Calendar): ${eventId || '—'}`
+  ].join('\n');
+
+  await transporter.sendMail({
+    from,
+    to: ADMIN_NOTIFY_EMAIL,
+    subject,
+    text
+  });
+  return true;
+}
 
 // ====== Auth (simples) ======
 // Armazena usuários em arquivo JSON (bom para MVP / baixo tráfego).
@@ -400,8 +455,7 @@ app.post('/api/auth/register', async (req,res)=>{
 
     if(nm.length < 2) return res.status(400).json({ error: 'Nome inválido.' });
     if(!ph || ph.length < 10) return res.status(400).json({ error: 'WhatsApp inválido.' });
-    if(!em) return res.status(400).json({ error: 'E-mail é obrigatório.' });
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
+    if(em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
     if(pw.length < 6) return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
 
     const users = readUsers();
@@ -554,12 +608,16 @@ app.post('/api/book', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { date, start, duration, name, phone } = req.body || {};
+    const { date, start, duration, name, email, phone } = req.body || {};
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
     if(!/^\d{2}:\d{2}$/.test(String(start||''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
-    if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
+    if(!String(name||'').trim() || !String(email||'').trim() || !String(phone||'').trim()){
+      return res.status(400).json({ error:'name, email e phone são obrigatórios' });
+    }
+    const emailNorm = normalizeEmail(email);
+    if(!/^\S+@\S+\.\S+$/.test(emailNorm)) return res.status(400).json({ error:'email inválido' });
 
     // calcula end
     const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
@@ -621,8 +679,9 @@ app.post('/api/book', async (req,res)=>{
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
+    const durTxt = (dur===120?'2h':'1h');
     const description =
-      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
+      `Cliente: ${name}\nE-mail: ${emailNorm}\nWhatsApp: ${phone}\nDuração: ${durTxt}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -636,12 +695,32 @@ app.post('/api/book', async (req,res)=>{
       requestBody: event
     });
 
+    // Notifica a equipe por e-mail (sem depender de WhatsApp)
+    let emailSent = false;
+    try{
+      emailSent = await sendReservationEmailToAdmin({
+        date: String(date),
+        start: String(start),
+        end,
+        durText: durTxt,
+        court: `Quadra ${chosen}`,
+        name: String(name).trim(),
+        email: emailNorm,
+        phone: String(phone).trim(),
+        eventId: created.data.id
+      });
+    }catch(e){
+      console.error('Falha ao enviar e-mail de notificação:', e);
+      emailSent = false;
+    }
+
     return res.json({
       ok:true,
       court: `Quadra ${chosen}`,
       start,
       end,
-      eventId: created.data.id
+      eventId: created.data.id,
+      emailSent
     });
   }catch(e){
     console.error(e);
