@@ -2,12 +2,71 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
+import fs from 'fs';
+import path from 'path';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
+
+// ====== Auth (simples) ======
+// Armazena usuários em arquivo JSON (bom para MVP / baixo tráfego).
+// Em produção, o ideal é usar um banco persistente (Postgres etc.).
+const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_IN_ENV';
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+
+function ensureDataDir(){
+  try{ fs.mkdirSync(DATA_DIR, { recursive: true }); }catch(e){}
+  if(!fs.existsSync(USERS_FILE)){
+    try{ fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2), 'utf8'); }catch(e){}
+  }
+}
+
+function readUsers(){
+  ensureDataDir();
+  try{
+    const raw = fs.readFileSync(USERS_FILE, 'utf8');
+    const obj = JSON.parse(raw || '{"users":[]}');
+    return Array.isArray(obj.users) ? obj.users : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function writeUsers(users){
+  ensureDataDir();
+  fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), 'utf8');
+}
+
+function newId(){
+  return 'u_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function signToken(user){
+  return jwt.sign(
+    { sub: user.id, phone: user.phoneDigits, email: user.email || '', name: user.name || '' },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+}
+
+function authMiddleware(req, res, next){
+  const h = String(req.headers.authorization || '');
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  if(!m) return res.status(401).json({ error: 'Não autenticado.' });
+  try{
+    const payload = jwt.verify(m[1], JWT_SECRET);
+    req.user = payload;
+    return next();
+  }catch(e){
+    return res.status(401).json({ error: 'Sessão inválida/expirada.' });
+  }
+}
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
@@ -77,6 +136,15 @@ function pad(n){ return String(n).padStart(2,'0'); }
 
 function normalizePhone(s){
   return String(s||'').replace(/\D+/g,''); // only digits
+}
+
+function normalizeEmail(s){
+  return String(s||'').trim().toLowerCase();
+}
+
+function sanitizeUser(u){
+  const { passwordHash, ...rest } = u;
+  return rest;
 }
 
 function extractPhoneFromEvent(ev){
@@ -317,6 +385,142 @@ app.get('/health', async (req,res)=>{
     return res.status(500).json({ ok:false, error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
   }
   return res.json({ ok:true });
+});
+
+// =========================
+// Auth (cadastro/login)
+// =========================
+app.post('/api/auth/register', async (req,res)=>{
+  try{
+    const { name, email, phone, password } = req.body || {};
+    const nm = String(name||'').trim();
+    const em = normalizeEmail(email);
+    const ph = normalizePhone(phone);
+    const pw = String(password||'');
+
+    if(nm.length < 2) return res.status(400).json({ error: 'Nome inválido.' });
+    if(!ph || ph.length < 10) return res.status(400).json({ error: 'WhatsApp inválido.' });
+    if(em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
+    if(pw.length < 6) return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
+
+    const users = readUsers();
+    const exists = users.find(u => u.phoneDigits === ph || (em && u.email === em));
+    if(exists) return res.status(409).json({ error: 'Já existe um cadastro com esse WhatsApp/e-mail.' });
+
+    const passwordHash = await bcrypt.hash(pw, 10);
+    const user = {
+      id: newId(),
+      name: nm,
+      email: em,
+      phoneDigits: ph,
+      createdAt: new Date().toISOString()
+    };
+    users.push({ ...user, passwordHash });
+    writeUsers(users);
+
+    const token = signToken(user);
+    return res.json({ ok:true, token, user });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error: 'Erro ao cadastrar.' });
+  }
+});
+
+app.post('/api/auth/login', async (req,res)=>{
+  try{
+    const { identifier, password } = req.body || {};
+    const idfRaw = String(identifier||'').trim();
+    const pw = String(password||'');
+    if(!idfRaw || !pw) return res.status(400).json({ error: 'Informe WhatsApp/e-mail e senha.' });
+
+    const idEmail = normalizeEmail(idfRaw);
+    const idPhone = normalizePhone(idfRaw);
+
+    const users = readUsers();
+    const user = users.find(u => (idEmail && u.email === idEmail) || (idPhone && u.phoneDigits === idPhone));
+    if(!user) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+
+    const ok = await bcrypt.compare(pw, user.passwordHash || '');
+    if(!ok) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+
+    const publicUser = sanitizeUser(user);
+    const token = signToken(publicUser);
+    return res.json({ ok:true, token, user: publicUser });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error: 'Erro ao entrar.' });
+  }
+});
+
+app.get('/api/auth/me', authMiddleware, async (req,res)=>{
+  try{
+    const users = readUsers();
+    const u = users.find(x => x.id === req.user.sub);
+    if(!u) return res.status(401).json({ error: 'Sessão inválida.' });
+    return res.json({ ok:true, user: sanitizeUser(u) });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error: 'Erro.' });
+  }
+});
+
+app.get('/api/me/reservations', authMiddleware, async (req,res)=>{
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+    const phoneDigits = normalizePhone(req.user.phone || '');
+    if(!phoneDigits) return res.status(400).json({ error:'Telefone inválido.' });
+
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+
+    const formatted = reservations.map(r => {
+      const start = r.start;
+      const end = r.end;
+      const date = String(start).slice(0,10);
+      const hhmm = String(start).slice(11,16);
+      const ehhmm = String(end).slice(11,16);
+      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
+      return {
+        eventId: r.eventId,
+        date,
+        start: hhmm,
+        end: ehhmm,
+        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
+        summary: r.summary || ''
+      };
+    });
+
+    return res.json({ ok:true, reservations: formatted });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao buscar reservas.' });
+  }
+});
+
+app.post('/api/me/cancel', authMiddleware, async (req,res)=>{
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+    const { eventId } = req.body || {};
+    if(!eventId) return res.status(400).json({ error:'eventId é obrigatório' });
+
+    const phoneDigits = normalizePhone(req.user.phone || '');
+    await ensureAuth();
+    const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
+    const ph = extractPhoneFromEvent({ summary: ev.data.summary||'', description: ev.data.description||'', location: ev.data.location||'' });
+    if(ph !== phoneDigits){
+      return res.status(403).json({ error:'Essa reserva não pertence ao seu WhatsApp.' });
+    }
+    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
+    return res.json({ ok:true, canceledEventId: eventId });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao cancelar reserva.' });
+  }
 });
 
 app.get('/api/slots', async (req,res)=>{
