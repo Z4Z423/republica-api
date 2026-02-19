@@ -400,7 +400,8 @@ app.post('/api/auth/register', async (req,res)=>{
 
     if(nm.length < 2) return res.status(400).json({ error: 'Nome inválido.' });
     if(!ph || ph.length < 10) return res.status(400).json({ error: 'WhatsApp inválido.' });
-    if(em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
+    if(!em) return res.status(400).json({ error: 'E-mail é obrigatório.' });
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
     if(pw.length < 6) return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
 
     const users = readUsers();
