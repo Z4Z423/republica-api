@@ -2,6 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -77,6 +80,32 @@ function pad(n){ return String(n).padStart(2,'0'); }
 
 function normalizePhone(s){
   return String(s||'').replace(/\D+/g,''); // only digits
+}
+
+const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+
+function readUsers(){
+  try{
+    if(!fs.existsSync(USERS_FILE)) return [];
+    const raw = fs.readFileSync(USERS_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function writeUsers(users){
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+}
+
+function hashPassword(password){
+  return crypto.createHash('sha256').update(String(password) + '|' + AUTH_SECRET).digest('hex');
+}
+
+function makePublicUser(u){
+  return { id: u.id, name: u.name, email: u.email, phone: u.phone };
 }
 
 function extractPhoneFromEvent(ev){
@@ -528,6 +557,62 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
   }
 });
 
+
+
+// =========================
+// Auth simples (arquivo local users.json)
+// =========================
+app.post('/api/auth/register', (req,res)=>{
+  try{
+    const { name, email, phone, password } = req.body || {};
+    const cleanName = String(name||'').trim();
+    const cleanEmail = String(email||'').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone);
+    const cleanPass = String(password||'');
+    if(!cleanName || !cleanEmail || !cleanPhone || !cleanPass) return res.status(400).json({ error:'Preencha nome, e-mail, WhatsApp e senha.' });
+    if(cleanPass.length < 4) return res.status(400).json({ error:'A senha deve ter pelo menos 4 caracteres.' });
+
+    const users = readUsers();
+    if(users.find(u => String(u.email).toLowerCase() === cleanEmail)) return res.status(409).json({ error:'Este e-mail já está cadastrado.' });
+    if(users.find(u => normalizePhone(u.phone) === cleanPhone)) return res.status(409).json({ error:'Este WhatsApp já está cadastrado.' });
+
+    const user = { id: crypto.randomUUID(), name: cleanName, email: cleanEmail, phone: cleanPhone, passwordHash: hashPassword(cleanPass), createdAt: new Date().toISOString() };
+    users.push(user);
+    writeUsers(users);
+    return res.json({ ok:true, user: makePublicUser(user) });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao criar conta.' }); }
+});
+
+app.post('/api/auth/login', (req,res)=>{
+  try{
+    const { login, email, phone, password } = req.body || {};
+    const rawLogin = String(login || email || phone || '').trim();
+    const byEmail = rawLogin.includes('@');
+    const cleanEmail = String(email || (byEmail ? rawLogin : '') || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone || (!byEmail ? rawLogin : ''));
+    const users = readUsers();
+    const user = users.find(u => (cleanEmail && String(u.email).toLowerCase()===cleanEmail) || (cleanPhone && normalizePhone(u.phone)===cleanPhone));
+    if(!user) return res.status(404).json({ error:'Conta não encontrada.' });
+    if(user.passwordHash !== hashPassword(password || '')) return res.status(401).json({ error:'Senha inválida.' });
+    return res.json({ ok:true, user: makePublicUser(user) });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro no login.' }); }
+});
+
+app.get('/api/my_reservations', async (req,res)=>{
+  try{
+    const phoneDigits = normalizePhone(req.query.phone);
+    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+    const formatted = reservations.map(r => {
+      const date = String(r.start).slice(0,10);
+      const hhmm = String(r.start).slice(11,16);
+      const ehhmm = String(r.end).slice(11,16);
+      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
+      return { eventId:r.eventId, date, start:hhmm, end:ehhmm, court: courtMatch ? `Quadra ${courtMatch[1]}` : '', summary:r.summary||'' };
+    });
+    return res.json({ ok:true, reservations: formatted });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao buscar reservas da conta.' }); }
+});
 
 app.listen(PORT, ()=>{
   console.log(`API rodando na porta ${PORT}`);
