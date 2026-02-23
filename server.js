@@ -607,6 +607,47 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
 });
 
 // =========================
+// Reset de senha (sem login)
+// Confirma por e-mail + WhatsApp cadastrados
+// =========================
+app.post('/api/auth/reset_password', (req, res) => {
+  try{
+    const { email, phone, newPassword } = req.body || {};
+
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone);
+    const cleanPass = String(newPassword || '');
+
+    if(!cleanEmail || !cleanPhone || !cleanPass){
+      return res.status(400).json({ error:'Preencha e-mail, WhatsApp e nova senha.' });
+    }
+
+    if(cleanPass.length < 4){
+      return res.status(400).json({ error:'A nova senha deve ter pelo menos 4 caracteres.' });
+    }
+
+    const users = readUsers();
+    const idx = users.findIndex(u =>
+      String(u.email || '').toLowerCase() === cleanEmail &&
+      normalizePhone(u.phone) === cleanPhone
+    );
+
+    if(idx === -1){
+      return res.status(404).json({ error:'Conta não encontrada com esse e-mail + WhatsApp.' });
+    }
+
+    users[idx].passwordHash = hashPassword(cleanPass);
+    users[idx].updatedAt = new Date().toISOString();
+    writeUsers(users);
+
+    return res.json({ ok:true, message:'Senha redefinida com sucesso.' });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao redefinir senha.' });
+  }
+});
+
+// =========================
 // Auth usuários
 // =========================
 app.post('/api/auth/register', (req,res)=>{
