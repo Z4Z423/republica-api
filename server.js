@@ -4,8 +4,7 @@ import cors from 'cors';
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import dns from 'dns';
 
@@ -15,8 +14,10 @@ app.use(express.json({ limit: '1mb' }));
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
-// ====== E-mail (notificação automática de reserva) ======
-// Configurar no Render:
+// =========================
+// E-mail (notificação automática de reserva)
+// =========================
+// Variáveis no Render:
 // SMTP_HOST
 // SMTP_PORT
 // SMTP_USER
@@ -36,14 +37,14 @@ function hasSmtpConfigured() {
 
 function makeTransport() {
   const port = Number(process.env.SMTP_PORT || 587);
-  const secure = port === 465; // 465 = SSL
+  const secure = port === 465;
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port,
     secure,
 
-    // Ajuda em alguns casos de timeout (Render/Gmail/SMTP)
+    // Ajuda em timeout de DNS/IPv6 em alguns hosts
     lookup: (hostname, options, cb) => dns.lookup(hostname, { family: 4 }, cb),
 
     auth: {
@@ -63,14 +64,13 @@ function makeTransport() {
   });
 }
 
-async function sendReservationEmailToAdmin({ date, start, end, durText, court, name, email, phone, eventId }) {
+async function sendReservationEmailToAdmin({ date, start, end, durText, court, name, phone, eventId }) {
   if (!hasSmtpConfigured()) return false;
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
   const transporter = makeTransport();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 
   const subject = `✅ Nova reserva — ${date} ${start}–${end} (${court})`;
-
   const text = [
     'Nova reserva criada pelo site República da Praia.',
     '',
@@ -80,7 +80,6 @@ async function sendReservationEmailToAdmin({ date, start, end, durText, court, n
     `Quadra: ${court}`,
     '',
     `Cliente: ${name}`,
-    `E-mail: ${email}`,
     `WhatsApp: ${phone}`,
     '',
     `EventId (Google Calendar): ${eventId || '—'}`
@@ -96,100 +95,59 @@ async function sendReservationEmailToAdmin({ date, start, end, durText, court, n
   return true;
 }
 
-// ====== Auth (simples) ======
-const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_IN_ENV';
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-
-function ensureDataDir() {
-  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
-  if (!fs.existsSync(USERS_FILE)) {
-    try { fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2), 'utf8'); } catch (e) {}
-  }
-}
-
-function readUsers() {
-  ensureDataDir();
-  try {
-    const raw = fs.readFileSync(USERS_FILE, 'utf8');
-    const obj = JSON.parse(raw || '{"users":[]}');
-    return Array.isArray(obj.users) ? obj.users : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function writeUsers(users) {
-  ensureDataDir();
-  fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), 'utf8');
-}
-
-function newId() {
-  return 'u_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
-
-function signToken(user) {
-  return jwt.sign(
-    { sub: user.id, phone: user.phoneDigits, email: user.email || '', name: user.name || '' },
-    JWT_SECRET,
-    { expiresIn: '30d' }
-  );
-}
-
-function authMiddleware(req, res, next) {
-  const h = String(req.headers.authorization || '');
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  if (!m) return res.status(401).json({ error: 'Não autenticado.' });
-  try {
-    const payload = jwt.verify(m[1], JWT_SECRET);
-    req.user = payload;
-    return next();
-  } catch (e) {
-    return res.status(401).json({ error: 'Sessão inválida/expirada.' });
-  }
-}
-
 // CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
 app.use(cors({
-  origin: function(origin, cb) {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.length === 0) return cb(null, true);
+  origin: function(origin, cb){
+    // allow server-to-server / curl without origin
+    if(!origin) return cb(null, true);
+    if(allowedOrigins.length === 0) return cb(null, true); // permissivo por padrão
     return cb(null, allowedOrigins.includes(origin));
   }
 }));
 
 // === Google Calendar auth (Service Account) ===
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
+// Você precisa compartilhar sua agenda com o e-mail da Service Account (permissão "Fazer alterações em eventos")
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID; // ex: napraiasjp@gmail.com ou ID da agenda
 
+// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 do arquivo .json)
 let SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 let SA_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
 const SA_JSON_B64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
-const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // (opcional) JSON em texto
 
-function loadServiceAccountFromEnv() {
-  try {
+function loadServiceAccountFromEnv(){
+  try{
     let raw = null;
-    if (SA_JSON_B64) raw = Buffer.from(SA_JSON_B64, 'base64').toString('utf8');
-    else if (SA_JSON_RAW) raw = SA_JSON_RAW;
-    if (!raw) return;
+    if(SA_JSON_B64){
+      raw = Buffer.from(SA_JSON_B64, 'base64').toString('utf8');
+    } else if(SA_JSON_RAW){
+      raw = SA_JSON_RAW;
+    }
+    if(!raw) return;
     const obj = JSON.parse(raw);
-    if (obj.client_email) SA_EMAIL = obj.client_email;
-    if (obj.private_key) SA_PRIVATE_KEY = obj.private_key;
-  } catch (e) {}
+    if(obj.client_email) SA_EMAIL = obj.client_email;
+    if(obj.private_key) SA_PRIVATE_KEY = obj.private_key;
+  }catch(e){
+    // se der erro, mantém o modo antigo por env vars
+  }
 }
 loadServiceAccountFromEnv();
 
 if (SA_PRIVATE_KEY) {
+  // Render/Heroku geralmente guardam com \n literal
   SA_PRIVATE_KEY = SA_PRIVATE_KEY.replace(/\\n/g, '\n');
 }
 
-function requireEnv() {
+function requireEnv(){
   const missing = [];
-  if (!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
-  if (!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
-  if (!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+  if(!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
+
+  // Se você usar GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, não precisa setar EMAIL/KEY separados.
+  if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+  if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+
   return missing;
 }
 
@@ -199,15 +157,38 @@ const jwtClient = new google.auth.JWT({
   key: SA_PRIVATE_KEY,
   scopes
 });
-const calendar = google.calendar({ version: 'v3', auth: jwtClient });
+const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
-function normalizePhone(s){ return String(s||'').replace(/\D+/g,''); }
-function normalizeEmail(s){ return String(s||'').trim().toLowerCase(); }
 
-function sanitizeUser(u){
-  const { passwordHash, ...rest } = u;
-  return rest;
+function normalizePhone(s){
+  return String(s||'').replace(/\D+/g,''); // only digits
+}
+
+const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+
+function readUsers(){
+  try{
+    if(!fs.existsSync(USERS_FILE)) return [];
+    const raw = fs.readFileSync(USERS_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function writeUsers(users){
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+}
+
+function hashPassword(password){
+  return crypto.createHash('sha256').update(String(password) + '|' + AUTH_SECRET).digest('hex');
+}
+
+function makePublicUser(u){
+  return { id: u.id, name: u.name, email: u.email, phone: u.phone };
 }
 
 function extractPhoneFromEvent(ev){
@@ -221,8 +202,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   await ensureAuth();
   const now = new Date();
   const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString();
-
+  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString(); // 120 days
   const resp = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin,
@@ -231,8 +211,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
     orderBy: 'startTime',
     maxResults: 2500
   });
-
-  const items = (resp.data.items || []).map(e => ({
+  const items = (resp.data.items || []).map(e=>({
     id: e.id,
     summary: e.summary || '',
     description: e.description || '',
@@ -240,13 +219,12 @@ async function listUpcomingReservationsByPhone(phoneDigits){
     start: e.start?.dateTime || e.start?.date || '',
     end: e.end?.dateTime || e.end?.date || ''
   }));
-
   const out = [];
-  for (const ev of items){
-    if (!ev.start || String(ev.start).length <= 10) continue;
+  for(const ev of items){
+    if(!ev.start || String(ev.start).length<=10) continue; // ignore all-day
     const ph = extractPhoneFromEvent(ev);
-    if (!ph) continue;
-    if (ph === phoneDigits){
+    if(!ph) continue;
+    if(ph === phoneDigits){
       out.push({
         eventId: ev.id,
         summary: ev.summary,
@@ -258,10 +236,13 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   return out;
 }
 
+// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
+// O Google usa o timeZone do requestBody para interpretar corretamente.
 function toDateTimeISO(dateStr, timeStr){
   return `${dateStr}T${timeStr}:00`;
 }
 
+// ====== Regras de disponibilidade ======
 function isWeekend(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0));
@@ -269,6 +250,8 @@ function isWeekend(dateStr){
   return dow === 0 || dow === 6;
 }
 
+// - Seg–Sex: 17:00–23:00
+// - Sáb–Dom: 09:00–19:00
 function generateSlots(dateISO, durationMinutes){
   const weekend = isWeekend(String(dateISO||''));
   const startHour = weekend ? 9 : 17;
@@ -350,7 +333,9 @@ async function listEventsForDay(dateStr){
 function isoToMinutes(iso){
   const s = String(iso || '');
   const mOffset = s.match(/T(\d{2}):(\d{2}).*([+-]\d{2}:?\d{2})$/);
-  if (mOffset) return Number(mOffset[1]) * 60 + Number(mOffset[2]);
+  if(mOffset){
+    return Number(mOffset[1]) * 60 + Number(mOffset[2]);
+  }
 
   try {
     const d = new Date(s);
@@ -365,8 +350,8 @@ function isoToMinutes(iso){
     return hh * 60 + mm;
   } catch {
     const m = s.match(/T(\d{2}):(\d{2})/);
-    if (!m) return 0;
-    return Number(m[1]) * 60 + Number(m[2]);
+    if(!m) return 0;
+    return Number(m[1])*60 + Number(m[2]);
   }
 }
 
@@ -428,144 +413,6 @@ app.get('/health', async (req,res)=>{
   return res.json({ ok:true });
 });
 
-// =========================
-// Auth (cadastro/login)
-// =========================
-app.post('/api/auth/register', async (req,res)=>{
-  try{
-    const { name, email, phone, password } = req.body || {};
-    const nm = String(name||'').trim();
-    const em = normalizeEmail(email);
-    const ph = normalizePhone(phone);
-    const pw = String(password||'');
-
-    if(nm.length < 2) return res.status(400).json({ error: 'Nome inválido.' });
-    if(!ph || ph.length < 10) return res.status(400).json({ error: 'WhatsApp inválido.' });
-    if(!em) return res.status(400).json({ error: 'E-mail é obrigatório.' });
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.status(400).json({ error: 'E-mail inválido.' });
-    if(pw.length < 6) return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
-
-    const users = readUsers();
-    const exists = users.find(u => u.phoneDigits === ph || u.email === em);
-    if(exists) return res.status(409).json({ error: 'Já existe um cadastro com esse WhatsApp/e-mail.' });
-
-    const passwordHash = await bcrypt.hash(pw, 10);
-    const user = {
-      id: newId(),
-      name: nm,
-      email: em,
-      phoneDigits: ph,
-      createdAt: new Date().toISOString()
-    };
-
-    users.push({ ...user, passwordHash });
-    writeUsers(users);
-
-    const token = signToken(user);
-    return res.json({ ok:true, token, user });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error: 'Erro ao cadastrar.' });
-  }
-});
-
-app.post('/api/auth/login', async (req,res)=>{
-  try{
-    const { identifier, password } = req.body || {};
-    const idfRaw = String(identifier||'').trim();
-    const pw = String(password||'');
-    if(!idfRaw || !pw) return res.status(400).json({ error: 'Informe WhatsApp/e-mail e senha.' });
-
-    const idEmail = normalizeEmail(idfRaw);
-    const idPhone = normalizePhone(idfRaw);
-
-    const users = readUsers();
-    const user = users.find(u => (idEmail && u.email === idEmail) || (idPhone && u.phoneDigits === idPhone));
-    if(!user) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
-
-    const ok = await bcrypt.compare(pw, user.passwordHash || '');
-    if(!ok) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
-
-    const publicUser = sanitizeUser(user);
-    const token = signToken(publicUser);
-    return res.json({ ok:true, token, user: publicUser });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error: 'Erro ao entrar.' });
-  }
-});
-
-app.get('/api/auth/me', authMiddleware, async (req,res)=>{
-  try{
-    const users = readUsers();
-    const u = users.find(x => x.id === req.user.sub);
-    if(!u) return res.status(401).json({ error: 'Sessão inválida.' });
-    return res.json({ ok:true, user: sanitizeUser(u) });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error: 'Erro.' });
-  }
-});
-
-app.get('/api/me/reservations', authMiddleware, async (req,res)=>{
-  try{
-    const missing = requireEnv();
-    if(missing.length){
-      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
-    }
-
-    const phoneDigits = normalizePhone(req.user.phone || '');
-    if(!phoneDigits) return res.status(400).json({ error:'Telefone inválido.' });
-
-    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
-
-    const formatted = reservations.map(r => {
-      const date = String(r.start).slice(0,10);
-      const hhmm = String(r.start).slice(11,16);
-      const ehhmm = String(r.end).slice(11,16);
-      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
-      return {
-        eventId: r.eventId,
-        date,
-        start: hhmm,
-        end: ehhmm,
-        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
-        summary: r.summary || ''
-      };
-    });
-
-    return res.json({ ok:true, reservations: formatted });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao buscar reservas.' });
-  }
-});
-
-app.post('/api/me/cancel', authMiddleware, async (req,res)=>{
-  try{
-    const missing = requireEnv();
-    if(missing.length){
-      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
-    }
-    const { eventId } = req.body || {};
-    if(!eventId) return res.status(400).json({ error:'eventId é obrigatório' });
-
-    const phoneDigits = normalizePhone(req.user.phone || '');
-    await ensureAuth();
-    const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
-    const ph = extractPhoneFromEvent({ summary: ev.data.summary||'', description: ev.data.description||'', location: ev.data.location||'' });
-    if(ph !== phoneDigits){
-      return res.status(403).json({ error:'Essa reserva não pertence ao seu WhatsApp.' });
-    }
-
-    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
-    return res.json({ ok:true, canceledEventId: eventId });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao cancelar reserva.' });
-  }
-});
-
 app.get('/api/slots', async (req,res)=>{
   try{
     const missing = requireEnv();
@@ -596,19 +443,13 @@ app.post('/api/book', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { date, start, duration, name, email, phone } = req.body || {};
+    const { date, start, duration, name, phone } = req.body || {};
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
     if(!/^\d{2}:\d{2}$/.test(String(start||''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
 
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
-
-    if(!String(name||'').trim() || !String(email||'').trim() || !String(phone||'').trim()){
-      return res.status(400).json({ error:'name, email e phone são obrigatórios' });
-    }
-
-    const emailNorm = normalizeEmail(email);
-    if(!/^\S+@\S+\.\S+$/.test(emailNorm)) return res.status(400).json({ error:'email inválido' });
+    if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
     const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
@@ -656,7 +497,7 @@ app.post('/api/book', async (req,res)=>{
       return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
     }
 
-    const freeCourts = [1,2].filter(c => !busyKnown.has(c));
+    const freeCourts = [1,2].filter(c=>!busyKnown.has(c));
     const chosen = freeCourts[0] ?? 1;
 
     const summary = `Locação Avulsa — Quadra ${chosen}`;
@@ -664,9 +505,9 @@ app.post('/api/book', async (req,res)=>{
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
 
-    const durTxt = (dur === 120 ? '2h' : '1h');
+    const durText = dur===120 ? '2h' : '1h';
     const description =
-      `Cliente: ${name}\nE-mail: ${emailNorm}\nWhatsApp: ${phone}\nDuração: ${durTxt}\nOrigem: site\n${warning}`;
+      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${durText}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -680,17 +521,16 @@ app.post('/api/book', async (req,res)=>{
       requestBody: event
     });
 
-    // ✅ Envia e-mail automático para a equipe (não bloqueia a reserva se falhar)
+    // ✅ Tenta enviar e-mail automático para a equipe (sem quebrar a reserva se falhar)
     let emailSent = false;
     try{
       emailSent = await sendReservationEmailToAdmin({
         date: String(date),
         start: String(start),
         end,
-        durText: durTxt,
+        durText: durText,
         court: `Quadra ${chosen}`,
         name: String(name).trim(),
-        email: emailNorm,
         phone: String(phone).trim(),
         eventId: created.data.id
       });
@@ -700,7 +540,7 @@ app.post('/api/book', async (req,res)=>{
     }
 
     return res.json({
-      ok: true,
+      ok:true,
       court: `Quadra ${chosen}`,
       start,
       end,
@@ -722,20 +562,22 @@ app.post('/api/cancel_lookup', async (req,res)=>{
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
-
     const { phone } = req.body || {};
     const phoneDigits = normalizePhone(phone);
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
 
     const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+
     if(!reservations.length){
       return res.json({ ok:true, reservations: [] });
     }
 
     const formatted = reservations.map(r => {
-      const date = String(r.start).slice(0,10);
-      const hhmm = String(r.start).slice(11,16);
-      const ehhmm = String(r.end).slice(11,16);
+      const start = r.start;
+      const end = r.end;
+      const date = String(start).slice(0,10);
+      const hhmm = String(start).slice(11,16);
+      const ehhmm = String(end).slice(11,16);
       const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
       return {
         eventId: r.eventId,
@@ -760,7 +602,6 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
-
     const { phone, eventId } = req.body || {};
     const phoneDigits = normalizePhone(phone);
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
@@ -789,6 +630,61 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     console.error(e);
     res.status(500).json({ error:'Erro ao cancelar reserva.' });
   }
+});
+
+// =========================
+// Auth simples (arquivo local users.json)
+// =========================
+app.post('/api/auth/register', (req,res)=>{
+  try{
+    const { name, email, phone, password } = req.body || {};
+    const cleanName = String(name||'').trim();
+    const cleanEmail = String(email||'').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone);
+    const cleanPass = String(password||'');
+    if(!cleanName || !cleanEmail || !cleanPhone || !cleanPass) return res.status(400).json({ error:'Preencha nome, e-mail, WhatsApp e senha.' });
+    if(cleanPass.length < 4) return res.status(400).json({ error:'A senha deve ter pelo menos 4 caracteres.' });
+
+    const users = readUsers();
+    if(users.find(u => String(u.email).toLowerCase() === cleanEmail)) return res.status(409).json({ error:'Este e-mail já está cadastrado.' });
+    if(users.find(u => normalizePhone(u.phone) === cleanPhone)) return res.status(409).json({ error:'Este WhatsApp já está cadastrado.' });
+
+    const user = { id: crypto.randomUUID(), name: cleanName, email: cleanEmail, phone: cleanPhone, passwordHash: hashPassword(cleanPass), createdAt: new Date().toISOString() };
+    users.push(user);
+    writeUsers(users);
+    return res.json({ ok:true, user: makePublicUser(user) });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao criar conta.' }); }
+});
+
+app.post('/api/auth/login', (req,res)=>{
+  try{
+    const { login, email, phone, password } = req.body || {};
+    const rawLogin = String(login || email || phone || '').trim();
+    const byEmail = rawLogin.includes('@');
+    const cleanEmail = String(email || (byEmail ? rawLogin : '') || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone || (!byEmail ? rawLogin : ''));
+    const users = readUsers();
+    const user = users.find(u => (cleanEmail && String(u.email).toLowerCase()===cleanEmail) || (cleanPhone && normalizePhone(u.phone)===cleanPhone));
+    if(!user) return res.status(404).json({ error:'Conta não encontrada.' });
+    if(user.passwordHash !== hashPassword(password || '')) return res.status(401).json({ error:'Senha inválida.' });
+    return res.json({ ok:true, user: makePublicUser(user) });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro no login.' }); }
+});
+
+app.get('/api/my_reservations', async (req,res)=>{
+  try{
+    const phoneDigits = normalizePhone(req.query.phone);
+    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+    const formatted = reservations.map(r => {
+      const date = String(r.start).slice(0,10);
+      const hhmm = String(r.start).slice(11,16);
+      const ehhmm = String(r.end).slice(11,16);
+      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
+      return { eventId:r.eventId, date, start:hhmm, end:ehhmm, court: courtMatch ? `Quadra ${courtMatch[1]}` : '', summary:r.summary||'' };
+    });
+    return res.json({ ok:true, reservations: formatted });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao buscar reservas da conta.' }); }
 });
 
 app.listen(PORT, ()=>{
