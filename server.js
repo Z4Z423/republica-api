@@ -2,11 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
+import { Resend } from 'resend';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
-import dns from 'dns';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -15,82 +14,46 @@ const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
 // =========================
-// E-mail (notificação automática de reserva)
+// E-mail via Resend (Render Free OK)
 // =========================
-// Variáveis no Render:
-// SMTP_HOST
-// SMTP_PORT
-// SMTP_USER
-// SMTP_PASS
-// SMTP_FROM
-// (opcional) ADMIN_NOTIFY_EMAIL
 const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'napraiasjp@gmail.com';
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-function hasSmtpConfigured() {
-  return !!(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_PORT &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS
-  );
-}
-
-function makeTransport() {
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = port === 465;
-
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port,
-    secure,
-
-    // Ajuda em timeout de DNS/IPv6 em alguns hosts
-    lookup: (hostname, options, cb) => dns.lookup(hostname, { family: 4 }, cb),
-
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 20000,
-
-    requireTLS: port === 587,
-    tls: {
-      servername: process.env.SMTP_HOST,
-      minVersion: 'TLSv1.2'
-    }
-  });
+function hasEmailProviderConfigured() {
+  return !!process.env.RESEND_API_KEY;
 }
 
 async function sendReservationEmailToAdmin({ date, start, end, durText, court, name, phone, eventId }) {
-  if (!hasSmtpConfigured()) return false;
-
-  const transporter = makeTransport();
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  if (!hasEmailProviderConfigured()) return false;
 
   const subject = `✅ Nova reserva — ${date} ${start}–${end} (${court})`;
-  const text = [
-    'Nova reserva criada pelo site República da Praia.',
-    '',
-    `Data: ${date}`,
-    `Horário: ${start}–${end}`,
-    `Duração: ${durText}`,
-    `Quadra: ${court}`,
-    '',
-    `Cliente: ${name}`,
-    `WhatsApp: ${phone}`,
-    '',
-    `EventId (Google Calendar): ${eventId || '—'}`
-  ].join('\n');
 
-  await transporter.sendMail({
-    from,
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height:1.5; color:#111;">
+      <h2 style="margin:0 0 12px;">Nova reserva criada no site</h2>
+      <p style="margin:4px 0;"><strong>Data:</strong> ${date}</p>
+      <p style="margin:4px 0;"><strong>Horário:</strong> ${start}–${end}</p>
+      <p style="margin:4px 0;"><strong>Duração:</strong> ${durText}</p>
+      <p style="margin:4px 0;"><strong>Quadra:</strong> ${court}</p>
+      <hr style="margin:12px 0;" />
+      <p style="margin:4px 0;"><strong>Cliente:</strong> ${name}</p>
+      <p style="margin:4px 0;"><strong>WhatsApp:</strong> ${phone}</p>
+      <p style="margin:4px 0;"><strong>EventId:</strong> ${eventId || '—'}</p>
+    </div>
+  `;
+
+  const result = await resend.emails.send({
+    // Para teste no plano grátis do Resend use onboarding@resend.dev
+    // Depois, se validar seu domínio no Resend, troque para: reservas@republicadapraia.com.br
+    from: 'onboarding@resend.dev',
     to: ADMIN_NOTIFY_EMAIL,
     subject,
-    text
+    html
   });
+
+  if (result?.error) {
+    throw new Error(result.error.message || 'Falha no Resend');
+  }
 
   return true;
 }
@@ -107,15 +70,14 @@ app.use(cors({
 }));
 
 // === Google Calendar auth (Service Account) ===
-// Você precisa compartilhar sua agenda com o e-mail da Service Account (permissão "Fazer alterações em eventos")
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID; // ex: napraiasjp@gmail.com ou ID da agenda
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
 
-// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 do arquivo .json)
+// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
 let SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 let SA_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
 const SA_JSON_B64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
-const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // (opcional) JSON em texto
+const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
 function loadServiceAccountFromEnv(){
   try{
@@ -136,18 +98,14 @@ function loadServiceAccountFromEnv(){
 loadServiceAccountFromEnv();
 
 if (SA_PRIVATE_KEY) {
-  // Render/Heroku geralmente guardam com \n literal
   SA_PRIVATE_KEY = SA_PRIVATE_KEY.replace(/\\n/g, '\n');
 }
 
 function requireEnv(){
   const missing = [];
   if(!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
-
-  // Se você usar GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, não precisa setar EMAIL/KEY separados.
   if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
   if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
-
   return missing;
 }
 
@@ -162,7 +120,7 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 function pad(n){ return String(n).padStart(2,'0'); }
 
 function normalizePhone(s){
-  return String(s||'').replace(/\D+/g,''); // only digits
+  return String(s||'').replace(/\D+/g,'');
 }
 
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
@@ -202,7 +160,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   await ensureAuth();
   const now = new Date();
   const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString(); // 120 days
+  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString();
   const resp = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin,
@@ -221,7 +179,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   }));
   const out = [];
   for(const ev of items){
-    if(!ev.start || String(ev.start).length<=10) continue; // ignore all-day
+    if(!ev.start || String(ev.start).length<=10) continue;
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
     if(ph === phoneDigits){
@@ -236,8 +194,6 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   return out;
 }
 
-// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
-// O Google usa o timeZone do requestBody para interpretar corretamente.
 function toDateTimeISO(dateStr, timeStr){
   return `${dateStr}T${timeStr}:00`;
 }
@@ -250,8 +206,6 @@ function isWeekend(dateStr){
   return dow === 0 || dow === 6;
 }
 
-// - Seg–Sex: 17:00–23:00
-// - Sáb–Dom: 09:00–19:00
 function generateSlots(dateISO, durationMinutes){
   const weekend = isWeekend(String(dateISO||''));
   const startHour = weekend ? 9 : 17;
@@ -446,7 +400,6 @@ app.post('/api/book', async (req,res)=>{
     const { date, start, duration, name, phone } = req.body || {};
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
     if(!/^\d{2}:\d{2}$/.test(String(start||''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
-
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
@@ -504,10 +457,8 @@ app.post('/api/book', async (req,res)=>{
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
-
-    const durText = dur===120 ? '2h' : '1h';
     const description =
-      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${durText}\nOrigem: site\n${warning}`;
+      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -521,21 +472,21 @@ app.post('/api/book', async (req,res)=>{
       requestBody: event
     });
 
-    // ✅ Tenta enviar e-mail automático para a equipe (sem quebrar a reserva se falhar)
+    // Envia e-mail automático para a equipe (Resend)
     let emailSent = false;
     try{
       emailSent = await sendReservationEmailToAdmin({
         date: String(date),
         start: String(start),
         end,
-        durText: durText,
+        durText: dur===120 ? '2h' : '1h',
         court: `Quadra ${chosen}`,
         name: String(name).trim(),
         phone: String(phone).trim(),
         eventId: created.data.id
       });
     }catch(e){
-      console.error('Falha ao enviar e-mail de notificação:', e);
+      console.error('Falha ao enviar e-mail de notificação (Resend):', e);
       emailSent = false;
     }
 
@@ -609,7 +560,6 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     if(!eventId){
       const list = await listUpcomingReservationsByPhone(phoneDigits);
       if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse telefone.' });
-
       const pick = list[0];
       await ensureAuth();
       await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: pick.eventId });
@@ -685,6 +635,27 @@ app.get('/api/my_reservations', async (req,res)=>{
     });
     return res.json({ ok:true, reservations: formatted });
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao buscar reservas da conta.' }); }
+});
+
+// Endpoint opcional para testar Resend sem fazer reserva
+app.get('/api/test-email', async (req,res)=>{
+  try{
+    if(!hasEmailProviderConfigured()){
+      return res.status(400).json({ ok:false, error:'RESEND_API_KEY não configurada' });
+    }
+
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: ADMIN_NOTIFY_EMAIL,
+      subject: 'Teste Resend - República da Praia',
+      html: '<p>Teste de envio de e-mail funcionando ✅</p>'
+    });
+
+    return res.json({ ok:true, message:'E-mail de teste enviado' });
+  }catch(e){
+    console.error('Teste Resend erro:', e);
+    return res.status(500).json({ ok:false, error: e.message || 'Erro ao enviar teste' });
+  }
 });
 
 app.listen(PORT, ()=>{
