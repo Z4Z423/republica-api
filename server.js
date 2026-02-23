@@ -125,6 +125,10 @@ function normalizePhone(s){
 
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
 const USERS_FILE = path.join(process.cwd(), 'users.json');
+const ACCESS_LOG_FILE = path.join(process.cwd(), 'access_logs.jsonl');
+const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || 'napraiasjp@gmail.com').trim().toLowerCase();
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'admnapraia#1505');
+const ADMIN_TOKEN_TTL_MS = Number(process.env.ADMIN_TOKEN_TTL_MS || (1000*60*60*12));
 
 function readUsers(){
   try{
@@ -490,6 +494,7 @@ app.post('/api/book', async (req,res)=>{
       emailSent = false;
     }
 
+    appendAccessLog({ kind:'booking', ok:true, phone: normalizePhone(phone), name: String(name).trim(), date: String(date), start: String(start), court: chosen, eventId: created.data.id });
     return res.json({
       ok:true,
       court: `Quadra ${chosen}`,
@@ -563,6 +568,7 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       const pick = list[0];
       await ensureAuth();
       await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: pick.eventId });
+      appendAccessLog({ kind:'cancel', ok:true, phone: phoneDigits, eventId: pick.eventId, mode:'next' });
       return res.json({ ok:true, canceledEventId: pick.eventId });
     }
 
@@ -575,6 +581,7 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     }
 
     await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
+    appendAccessLog({ kind:'cancel', ok:true, phone: phoneDigits, eventId, mode:'exact' });
     return res.json({ ok:true, canceledEventId: eventId });
   }catch(e){
     console.error(e);
@@ -602,6 +609,7 @@ app.post('/api/auth/register', (req,res)=>{
     const user = { id: crypto.randomUUID(), name: cleanName, email: cleanEmail, phone: cleanPhone, passwordHash: hashPassword(cleanPass), createdAt: new Date().toISOString() };
     users.push(user);
     writeUsers(users);
+    appendAccessLog({ kind:'auth_register', ok:true, userId:user.id, email:user.email, phone:user.phone });
     return res.json({ ok:true, user: makePublicUser(user) });
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao criar conta.' }); }
 });
@@ -615,8 +623,9 @@ app.post('/api/auth/login', (req,res)=>{
     const cleanPhone = normalizePhone(phone || (!byEmail ? rawLogin : ''));
     const users = readUsers();
     const user = users.find(u => (cleanEmail && String(u.email).toLowerCase()===cleanEmail) || (cleanPhone && normalizePhone(u.phone)===cleanPhone));
-    if(!user) return res.status(404).json({ error:'Conta não encontrada.' });
-    if(user.passwordHash !== hashPassword(password || '')) return res.status(401).json({ error:'Senha inválida.' });
+    if(!user){ appendAccessLog({ kind:'auth_login', ok:false, reason:'not_found', login: rawLogin }); return res.status(404).json({ error:'Conta não encontrada.' }); }
+    if(user.passwordHash !== hashPassword(password || '')){ appendAccessLog({ kind:'auth_login', ok:false, reason:'bad_password', userId:user.id, login: rawLogin }); return res.status(401).json({ error:'Senha inválida.' }); }
+    appendAccessLog({ kind:'auth_login', ok:true, userId:user.id, email:user.email, phone:user.phone });
     return res.json({ ok:true, user: makePublicUser(user) });
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro no login.' }); }
 });
@@ -656,6 +665,160 @@ app.get('/api/test-email', async (req,res)=>{
     console.error('Teste Resend erro:', e);
     return res.status(500).json({ ok:false, error: e.message || 'Erro ao enviar teste' });
   }
+});
+
+
+
+function appendAccessLog(entry){
+  try{
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
+    fs.appendFileSync(ACCESS_LOG_FILE, line, 'utf8');
+  }catch(e){}
+}
+
+function readAccessLogs(){
+  try{
+    if(!fs.existsSync(ACCESS_LOG_FILE)) return [];
+    return fs.readFileSync(ACCESS_LOG_FILE,'utf8').split(/\r?\n/).filter(Boolean).map(l=>{ try{return JSON.parse(l)}catch{return null} }).filter(Boolean);
+  }catch(e){ return []; }
+}
+
+function signAdminToken(payload){
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+function verifyAdminToken(token){
+  try{
+    const [body,sig] = String(token||'').split('.');
+    if(!body || !sig) return null;
+    const expSig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url');
+    if(sig !== expSig) return null;
+    const payload = JSON.parse(Buffer.from(body,'base64url').toString('utf8'));
+    if(payload.exp && Date.now() > payload.exp) return null;
+    if(payload.role !== 'admin') return null;
+    return payload;
+  }catch(e){ return null; }
+}
+
+function requireAdmin(req,res,next){
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const payload = verifyAdminToken(token);
+  if(!payload) return res.status(401).json({ error:'Acesso administrativo não autorizado.' });
+  req.admin = payload;
+  next();
+}
+
+app.use((req,res,next)=>{
+  const started = Date.now();
+  res.on('finish', ()=>{
+    if(String(req.path||'').startsWith('/api/')){
+      appendAccessLog({
+        kind:'http',
+        method:req.method,
+        path:req.path,
+        status:res.statusCode,
+        ms:Date.now()-started,
+        ip:req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '',
+        ua:req.headers['user-agent'] || ''
+      });
+    }
+  });
+  next();
+});
+
+app.post('/api/admin/login', (req,res)=>{
+  try{
+    const { email, password } = req.body || {};
+    const e = String(email||'').trim().toLowerCase();
+    const p = String(password||'');
+    if(e !== ADMIN_EMAIL || p !== ADMIN_PASSWORD){
+      appendAccessLog({ kind:'admin_login', ok:false, email:e });
+      return res.status(401).json({ error:'Credenciais de administrador inválidas.' });
+    }
+    const token = signAdminToken({ role:'admin', email:e, exp: Date.now()+ADMIN_TOKEN_TTL_MS });
+    appendAccessLog({ kind:'admin_login', ok:true, email:e });
+    return res.json({ ok:true, token, admin:{ email:e } });
+  }catch(e){ return res.status(500).json({ error:'Erro no login administrativo.' }); }
+});
+
+app.get('/api/admin/users', requireAdmin, (req,res)=>{
+  try{
+    const users = readUsers().map(u=>({ id:u.id, name:u.name, email:u.email, phone:u.phone, createdAt:u.createdAt || null }));
+    users.sort((a,b)=> String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    return res.json({ ok:true, users });
+  }catch(e){ return res.status(500).json({ error:'Erro ao listar contas.' }); }
+});
+
+app.get('/api/admin/reservations', requireAdmin, async (req,res)=>{
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+    await ensureAuth();
+    const now = new Date();
+    const days = Math.max(1, Math.min(180, Number(req.query.days || 60)));
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + days*24*60*60*1000).toISOString();
+    const resp = await calendar.events.list({ calendarId: CALENDAR_ID, timeMin, timeMax, singleEvents:true, orderBy:'startTime', maxResults:2500 });
+    const items = (resp.data.items || []).filter(e=> String(e.start?.dateTime||'')).map(e=>{
+      const phone = extractPhoneFromEvent({ summary:e.summary||'', description:e.description||'', location:e.location||'' });
+      const nameM = String(e.description||'').match(/Cliente:\s*([^\n]+)/i);
+      const courtM = String(e.summary||'').match(/Quadra\s*(\d)/i);
+      return {
+        eventId:e.id,
+        date:String(e.start.dateTime).slice(0,10),
+        start:String(e.start.dateTime).slice(11,16),
+        end:String(e.end?.dateTime||'').slice(11,16),
+        summary:e.summary||'',
+        court:courtM ? `Quadra ${courtM[1]}` : '',
+        customerName: nameM ? nameM[1].trim() : '',
+        phone
+      };
+    });
+    return res.json({ ok:true, reservations: items });
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao listar reservas.' }); }
+});
+
+app.get('/api/admin/stats', requireAdmin, async (req,res)=>{
+  try{
+    const users = readUsers();
+    const logs = readAccessLogs();
+    const now = Date.now();
+    const since7 = now - 7*24*60*60*1000;
+    const since30 = now - 30*24*60*60*1000;
+    const inRange = (l,t)=> { const x=Date.parse(l.ts||''); return Number.isFinite(x) && x>=t; };
+    const countPath = (path,t)=> logs.filter(l=>l.kind==='http' && l.path===path && (!t || inRange(l,t))).length;
+    const registrations = logs.filter(l=>l.kind==='auth_register' && l.ok).length;
+    const logins = logs.filter(l=>l.kind==='auth_login' && l.ok).length;
+
+    let upcomingCount = 0;
+    try{
+      const missing = requireEnv();
+      if(!missing.length){
+        await ensureAuth();
+        const resp = await calendar.events.list({ calendarId: CALENDAR_ID, timeMin:new Date().toISOString(), timeMax:new Date(Date.now()+60*24*60*60*1000).toISOString(), singleEvents:true, orderBy:'startTime', maxResults:2500 });
+        upcomingCount = (resp.data.items||[]).filter(e=>e.start?.dateTime).length;
+      }
+    }catch(e){}
+
+    return res.json({ ok:true, stats:{
+      totalUsers: users.length,
+      totalReservationsUpcoming: upcomingCount,
+      totalUserLogins: logins,
+      totalRegistrations: registrations,
+      hits7d: logs.filter(l=>l.kind==='http' && inRange(l,since7)).length,
+      hits30d: logs.filter(l=>l.kind==='http' && inRange(l,since30)).length,
+      bookings7d: countPath('/api/book', since7),
+      bookings30d: countPath('/api/book', since30),
+      reservationsViews7d: countPath('/api/my_reservations', since7),
+      cancelAttempts7d: countPath('/api/cancel_by_phone', since7),
+      accessRateEstimate7d: countPath('/api/my_reservations', since7) + countPath('/api/auth/login', since7)
+    }});
+  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao gerar métricas.' }); }
 });
 
 app.listen(PORT, ()=>{
