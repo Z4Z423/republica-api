@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { google } from 'googleapis';
-import { Resend } from 'resend';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -12,51 +11,6 @@ app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
-
-// =========================
-// E-mail via Resend (Render Free OK)
-// =========================
-const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'napraiasjp@gmail.com';
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
-function hasEmailProviderConfigured() {
-  return !!process.env.RESEND_API_KEY;
-}
-
-async function sendReservationEmailToAdmin({ date, start, end, durText, court, name, phone, eventId }) {
-  if (!hasEmailProviderConfigured()) return false;
-
-  const subject = `✅ Nova reserva — ${date} ${start}–${end} (${court})`;
-
-  const html = `
-    <div style="font-family: Arial, sans-serif; line-height:1.5; color:#111;">
-      <h2 style="margin:0 0 12px;">Nova reserva criada no site</h2>
-      <p style="margin:4px 0;"><strong>Data:</strong> ${date}</p>
-      <p style="margin:4px 0;"><strong>Horário:</strong> ${start}–${end}</p>
-      <p style="margin:4px 0;"><strong>Duração:</strong> ${durText}</p>
-      <p style="margin:4px 0;"><strong>Quadra:</strong> ${court}</p>
-      <hr style="margin:12px 0;" />
-      <p style="margin:4px 0;"><strong>Cliente:</strong> ${name}</p>
-      <p style="margin:4px 0;"><strong>WhatsApp:</strong> ${phone}</p>
-      <p style="margin:4px 0;"><strong>EventId:</strong> ${eventId || '—'}</p>
-    </div>
-  `;
-
-  const result = await resend.emails.send({
-    // Para teste no plano grátis do Resend use onboarding@resend.dev
-    // Depois, se validar seu domínio no Resend, troque para: reservas@republicadapraia.com.br
-    from: 'onboarding@resend.dev',
-    to: ADMIN_NOTIFY_EMAIL,
-    subject,
-    html
-  });
-
-  if (result?.error) {
-    throw new Error(result.error.message || 'Falha no Resend');
-  }
-
-  return true;
-}
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
@@ -70,14 +24,15 @@ app.use(cors({
 }));
 
 // === Google Calendar auth (Service Account) ===
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
+// Você precisa compartilhar sua agenda com o e-mail da Service Account (permissão "Fazer alterações em eventos")
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID; // ex: napraiasjp@gmail.com ou ID da agenda
 
-// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 do arquivo .json)
 let SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 let SA_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
 const SA_JSON_B64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
-const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // (opcional) JSON em texto
 
 function loadServiceAccountFromEnv(){
   try{
@@ -98,14 +53,18 @@ function loadServiceAccountFromEnv(){
 loadServiceAccountFromEnv();
 
 if (SA_PRIVATE_KEY) {
+  // Render/Heroku geralmente guardam com \n literal
   SA_PRIVATE_KEY = SA_PRIVATE_KEY.replace(/\\n/g, '\n');
 }
 
 function requireEnv(){
   const missing = [];
   if(!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
+
+  // Se você usar GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, não precisa setar EMAIL/KEY separados.
   if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
   if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
+
   return missing;
 }
 
@@ -120,15 +79,68 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 function pad(n){ return String(n).padStart(2,'0'); }
 
 function normalizePhone(s){
-  return String(s||'').replace(/\D+/g,'');
+  return String(s||'').replace(/\D+/g,''); // only digits
 }
 
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
 const USERS_FILE = path.join(process.cwd(), 'users.json');
-const ACCESS_LOG_FILE = path.join(process.cwd(), 'access_logs.jsonl');
-const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || 'napraiasjp@gmail.com').trim().toLowerCase();
-const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'admnapraia#1505');
-const ADMIN_TOKEN_TTL_MS = Number(process.env.ADMIN_TOKEN_TTL_MS || (1000*60*60*12));
+
+// =========================
+// Admin (somente e-mail + senha)
+// =========================
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'napraiasjp@gmail.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admnapraia#1505';
+const ADMIN_TOKEN_TTL_HOURS = 12;
+
+function makeAdminToken(){
+  const payload = {
+    email: ADMIN_EMAIL,
+    exp: Date.now() + ADMIN_TOKEN_TTL_HOURS * 60 * 60 * 1000
+  };
+  const json = JSON.stringify(payload);
+  const sig = crypto
+    .createHmac('sha256', AUTH_SECRET)
+    .update(json)
+    .digest('hex');
+
+  return Buffer.from(`${json}.${sig}`).toString('base64url');
+}
+
+function verifyAdminToken(token){
+  try{
+    if(!token) return false;
+    const raw = Buffer.from(String(token), 'base64url').toString('utf8');
+    const idx = raw.lastIndexOf('.');
+    if(idx <= 0) return false;
+
+    const json = raw.slice(0, idx);
+    const sig = raw.slice(idx + 1);
+
+    const expected = crypto
+      .createHmac('sha256', AUTH_SECRET)
+      .update(json)
+      .digest('hex');
+
+    if(sig !== expected) return false;
+
+    const payload = JSON.parse(json);
+    if(!payload?.exp || Date.now() > payload.exp) return false;
+    if(String(payload.email).toLowerCase() !== String(ADMIN_EMAIL).toLowerCase()) return false;
+
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+function adminAuth(req, res, next){
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if(!verifyAdminToken(token)){
+    return res.status(401).json({ error: 'Não autorizado' });
+  }
+  next();
+}
 
 function readUsers(){
   try{
@@ -164,7 +176,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   await ensureAuth();
   const now = new Date();
   const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString();
+  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString(); // 120 days
   const resp = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin,
@@ -183,7 +195,7 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   }));
   const out = [];
   for(const ev of items){
-    if(!ev.start || String(ev.start).length<=10) continue;
+    if(!ev.start || String(ev.start).length<=10) continue; // ignore all-day
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
     if(ph === phoneDigits){
@@ -198,18 +210,24 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   return out;
 }
 
+// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
+// O Google usa o timeZone do requestBody para interpretar corretamente.
 function toDateTimeISO(dateStr, timeStr){
   return `${dateStr}T${timeStr}:00`;
 }
 
 // ====== Regras de disponibilidade ======
+// Locação avulsa NÃO disponível em sábado/domingo
 function isWeekend(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0));
-  const dow = dt.getUTCDay();
+  const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0)); // meio-dia UTC evita "virar dia" por fuso
+  const dow = dt.getUTCDay(); // 0=Dom, 6=Sáb
   return dow === 0 || dow === 6;
 }
 
+// Gera lista de slots conforme dia:
+// - Seg–Sex: 17:00–23:00 (início inclusive, fim exclusivo)
+// - Sáb–Dom: 09:00–19:00 (início inclusive, fim exclusivo)
 function generateSlots(dateISO, durationMinutes){
   const weekend = isWeekend(String(dateISO||''));
   const startHour = weekend ? 9 : 17;
@@ -229,6 +247,11 @@ function overlaps(aStart, aEnd, bStart, bEnd){
   return (aStart < bEnd) && (bStart < aEnd);
 }
 
+// ====== Classificação de eventos para quadras ======
+// 1) Se o evento tem "Quadra 1/2" (ou Q1/Q2) no título/descrição/local → usa isso.
+// 2) Se não tiver, tenta mapear por palavras-chave (configurável).
+// 3) Se ainda assim não der, considera "ocupando 1 quadra (desconhecida)".
+//    Isso resolve o bug de aparecer 0 quadras quando existe só 1 aula no horário.
 let DEFAULT_KEYWORD_MAP = [
   { pattern: 'futevolei|futvolei|futev[oó]lei', court: 1 },
   { pattern: 'v[oó]lei(?!.*fute)', court: 2 },
@@ -240,7 +263,7 @@ try{
     const parsed = JSON.parse(process.env.COURT_KEYWORDS_JSON);
     if(Array.isArray(parsed) && parsed.length) DEFAULT_KEYWORD_MAP = parsed;
   }
-}catch(e){}
+}catch(e){ /* ignora */ }
 
 function classifyEventToCourts(ev){
   const text = `${ev.summary||''} ${ev.description||''} ${ev.location||''}`.toLowerCase();
@@ -252,6 +275,7 @@ function classifyEventToCourts(ev){
   if(q2 && !q1) return { kind:'known', courts:[2], blockBoth:false };
   if(q1 && q2) return { kind:'known', courts:[1,2], blockBoth:true };
 
+  // keyword mapping
   for(const rule of DEFAULT_KEYWORD_MAP){
     try{
       const re = new RegExp(rule.pattern, 'i');
@@ -259,13 +283,15 @@ function classifyEventToCourts(ev){
         const c = Number(rule.court);
         if(c === 1 || c === 2) return { kind:'known', courts:[c], blockBoth:false };
       }
-    }catch(e){}
+    }catch(e){ /* ignora regra inválida */ }
   }
 
+  // fallback: ocupa 1 quadra sem especificar qual
   return { kind:'unknownSingle', courts:[], blockBoth:false };
 }
 
 async function listEventsForDay(dateStr){
+  // busca eventos do dia inteiro (00:00 a 23:59) no TZ
   const timeMin = `${dateStr}T00:00:00-03:00`;
   const timeMax = `${dateStr}T23:59:59-03:00`;
 
@@ -283,18 +309,23 @@ async function listEventsForDay(dateStr){
     summary: ev.summary || '',
     description: ev.description || '',
     location: ev.location || '',
-    start: ev.start?.dateTime || ev.start?.date,
+    start: ev.start?.dateTime || ev.start?.date, // dateTime preferido
     end: ev.end?.dateTime || ev.end?.date
   }));
 }
 
+// Converte dateTime ISO para minutos desde 00:00 em TZ.
+// - Se ISO já tiver offset (ex.: -03:00), pegamos HH:MM do texto direto (mais fiel).
+// - Se vier em UTC (…Z), converte com Intl no fuso TZ.
 function isoToMinutes(iso){
   const s = String(iso || '');
+  // Caso comum: 2026-02-12T18:00:00-03:00  → usa 18:00 direto
   const mOffset = s.match(/T(\d{2}):(\d{2}).*([+-]\d{2}:?\d{2})$/);
   if(mOffset){
     return Number(mOffset[1]) * 60 + Number(mOffset[2]);
   }
 
+  // Caso UTC: ...Z
   try {
     const d = new Date(s);
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -321,10 +352,11 @@ function computeAvailability(events, duration, date){
     const slotStartMin = Number(slot.start.split(':')[0])*60 + Number(slot.start.split(':')[1]);
     const slotEndMin = Number(slot.end.split(':')[0])*60 + Number(slot.end.split(':')[1]);
 
-    let busyKnown = new Set();
-    let unknownCount = 0;
+    let busyKnown = new Set();  // quadras conhecidas ocupadas
+    let unknownCount = 0;       // eventos sem quadra definida (ocupam 1 quadra)
 
     for(const ev of events){
+      // all-day bloqueia tudo
       if(String(ev.start).length <= 10) {
         busyKnown = new Set([1,2]);
         unknownCount = 0;
@@ -360,6 +392,7 @@ function computeAvailability(events, duration, date){
 }
 
 async function ensureAuth(){
+  // força autenticação (principalmente no primeiro request)
   await jwtClient.authorize();
 }
 
@@ -408,12 +441,14 @@ app.post('/api/book', async (req,res)=>{
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
+    // calcula end
     const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
     const endH = Math.floor(endMin/60);
     const endM = endMin%60;
     const end = `${pad(endH)}:${pad(endM)}`;
 
+    // valida se o horário solicitado existe na grade do dia (evita reservas fora do funcionamento)
     const allowedSlots = generateSlots(String(date), dur);
     const isValidSlot = allowedSlots.some(s => s.start === String(start) && s.end === String(end));
     if(!isValidSlot){
@@ -423,17 +458,20 @@ app.post('/api/book', async (req,res)=>{
     await ensureAuth();
     const events = await listEventsForDay(String(date));
 
+    // Eventos que batem com o intervalo
     const slotEvents = events.filter(ev=>{
-      if(String(ev.start).length <= 10) return true;
+      if(String(ev.start).length <= 10) return true; // all-day bloqueia
       const evStartMin = isoToMinutes(ev.start);
       const evEndMin = isoToMinutes(ev.end);
       return overlaps(startMin, endMin, evStartMin, evEndMin);
     });
 
+    // Se existir all-day => indisponível
     if(slotEvents.some(ev => String(ev.start).length <= 10)){
       return res.status(409).json({ error:'Esse horário está indisponível.' });
     }
 
+    // Calcula ocupação: quadras conhecidas + quantidade de eventos "unknownSingle"
     const busyKnown = new Set();
     let unknownCount = 0;
 
@@ -454,9 +492,11 @@ app.post('/api/book', async (req,res)=>{
       return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
     }
 
+    // Escolhe uma quadra livre (prioriza a que NÃO está em busyKnown)
     const freeCourts = [1,2].filter(c=>!busyKnown.has(c));
     const chosen = freeCourts[0] ?? 1;
 
+    // cria evento no calendário
     const summary = `Locação Avulsa — Quadra ${chosen}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
@@ -476,32 +516,12 @@ app.post('/api/book', async (req,res)=>{
       requestBody: event
     });
 
-    // Envia e-mail automático para a equipe (Resend)
-    let emailSent = false;
-    try{
-      emailSent = await sendReservationEmailToAdmin({
-        date: String(date),
-        start: String(start),
-        end,
-        durText: dur===120 ? '2h' : '1h',
-        court: `Quadra ${chosen}`,
-        name: String(name).trim(),
-        phone: String(phone).trim(),
-        eventId: created.data.id
-      });
-    }catch(e){
-      console.error('Falha ao enviar e-mail de notificação (Resend):', e);
-      emailSent = false;
-    }
-
-    appendAccessLog({ kind:'booking', ok:true, phone: normalizePhone(phone), name: String(name).trim(), date: String(date), start: String(start), court: chosen, eventId: created.data.id });
     return res.json({
       ok:true,
       court: `Quadra ${chosen}`,
       start,
       end,
-      eventId: created.data.id,
-      emailSent
+      eventId: created.data.id
     });
   }catch(e){
     console.error(e);
@@ -528,9 +548,11 @@ app.post('/api/cancel_lookup', async (req,res)=>{
       return res.json({ ok:true, reservations: [] });
     }
 
+    // formata para o front (data/hora local)
     const formatted = reservations.map(r => {
       const start = r.start;
       const end = r.end;
+      // pega "YYYY-MM-DD" e "HH:MM"
       const date = String(start).slice(0,10);
       const hhmm = String(start).slice(11,16);
       const ehhmm = String(end).slice(11,16);
@@ -563,15 +585,17 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
 
     if(!eventId){
+      // se não veio eventId, tenta cancelar a próxima reserva
       const list = await listUpcomingReservationsByPhone(phoneDigits);
       if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse telefone.' });
+      // pega a primeira (mais próxima)
       const pick = list[0];
       await ensureAuth();
       await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: pick.eventId });
-      appendAccessLog({ kind:'cancel', ok:true, phone: phoneDigits, eventId: pick.eventId, mode:'next' });
       return res.json({ ok:true, canceledEventId: pick.eventId });
     }
 
+    // valida que o eventId pertence ao telefone
     await ensureAuth();
     const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
     const desc = ev.data.description || '';
@@ -581,7 +605,6 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     }
 
     await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
-    appendAccessLog({ kind:'cancel', ok:true, phone: phoneDigits, eventId, mode:'exact' });
     return res.json({ ok:true, canceledEventId: eventId });
   }catch(e){
     console.error(e);
@@ -609,7 +632,6 @@ app.post('/api/auth/register', (req,res)=>{
     const user = { id: crypto.randomUUID(), name: cleanName, email: cleanEmail, phone: cleanPhone, passwordHash: hashPassword(cleanPass), createdAt: new Date().toISOString() };
     users.push(user);
     writeUsers(users);
-    appendAccessLog({ kind:'auth_register', ok:true, userId:user.id, email:user.email, phone:user.phone });
     return res.json({ ok:true, user: makePublicUser(user) });
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao criar conta.' }); }
 });
@@ -623,9 +645,8 @@ app.post('/api/auth/login', (req,res)=>{
     const cleanPhone = normalizePhone(phone || (!byEmail ? rawLogin : ''));
     const users = readUsers();
     const user = users.find(u => (cleanEmail && String(u.email).toLowerCase()===cleanEmail) || (cleanPhone && normalizePhone(u.phone)===cleanPhone));
-    if(!user){ appendAccessLog({ kind:'auth_login', ok:false, reason:'not_found', login: rawLogin }); return res.status(404).json({ error:'Conta não encontrada.' }); }
-    if(user.passwordHash !== hashPassword(password || '')){ appendAccessLog({ kind:'auth_login', ok:false, reason:'bad_password', userId:user.id, login: rawLogin }); return res.status(401).json({ error:'Senha inválida.' }); }
-    appendAccessLog({ kind:'auth_login', ok:true, userId:user.id, email:user.email, phone:user.phone });
+    if(!user) return res.status(404).json({ error:'Conta não encontrada.' });
+    if(user.passwordHash !== hashPassword(password || '')) return res.status(401).json({ error:'Senha inválida.' });
     return res.json({ ok:true, user: makePublicUser(user) });
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro no login.' }); }
 });
@@ -646,179 +667,38 @@ app.get('/api/my_reservations', async (req,res)=>{
   }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao buscar reservas da conta.' }); }
 });
 
-// Endpoint opcional para testar Resend sem fazer reserva
-app.get('/api/test-email', async (req,res)=>{
+// =========================
+// Admin login (somente e-mail + senha)
+// =========================
+app.post('/api/admin/login', (req, res) => {
   try{
-    if(!hasEmailProviderConfigured()){
-      return res.status(400).json({ ok:false, error:'RESEND_API_KEY não configurada' });
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if(!email || !password){
+      return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
     }
 
-    await resend.emails.send({
-      from: 'onboarding@resend.dev',
-      to: ADMIN_NOTIFY_EMAIL,
-      subject: 'Teste Resend - República da Praia',
-      html: '<p>Teste de envio de e-mail funcionando ✅</p>'
-    });
+    if(email !== String(ADMIN_EMAIL).toLowerCase() || password !== String(ADMIN_PASSWORD)){
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
 
-    return res.json({ ok:true, message:'E-mail de teste enviado' });
+    const token = makeAdminToken();
+
+    return res.json({
+      ok: true,
+      token,
+      admin: { email: ADMIN_EMAIL }
+    });
   }catch(e){
-    console.error('Teste Resend erro:', e);
-    return res.status(500).json({ ok:false, error: e.message || 'Erro ao enviar teste' });
+    console.error(e);
+    return res.status(500).json({ error: 'Erro no login ADM.' });
   }
 });
 
-
-
-function appendAccessLog(entry){
-  try{
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
-    fs.appendFileSync(ACCESS_LOG_FILE, line, 'utf8');
-  }catch(e){}
-}
-
-function readAccessLogs(){
-  try{
-    if(!fs.existsSync(ACCESS_LOG_FILE)) return [];
-    return fs.readFileSync(ACCESS_LOG_FILE,'utf8').split(/\r?\n/).filter(Boolean).map(l=>{ try{return JSON.parse(l)}catch{return null} }).filter(Boolean);
-  }catch(e){ return []; }
-}
-
-function signAdminToken(payload){
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url');
-  return `${body}.${sig}`;
-}
-
-function verifyAdminToken(token){
-  try{
-    const [body,sig] = String(token||'').split('.');
-    if(!body || !sig) return null;
-    const expSig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url');
-    if(sig !== expSig) return null;
-    const payload = JSON.parse(Buffer.from(body,'base64url').toString('utf8'));
-    if(payload.exp && Date.now() > payload.exp) return null;
-    if(payload.role !== 'admin') return null;
-    return payload;
-  }catch(e){ return null; }
-}
-
-function requireAdmin(req,res,next){
-  const auth = String(req.headers.authorization || '');
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const payload = verifyAdminToken(token);
-  if(!payload) return res.status(401).json({ error:'Acesso administrativo não autorizado.' });
-  req.admin = payload;
-  next();
-}
-
-app.use((req,res,next)=>{
-  const started = Date.now();
-  res.on('finish', ()=>{
-    if(String(req.path||'').startsWith('/api/')){
-      appendAccessLog({
-        kind:'http',
-        method:req.method,
-        path:req.path,
-        status:res.statusCode,
-        ms:Date.now()-started,
-        ip:req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '',
-        ua:req.headers['user-agent'] || ''
-      });
-    }
-  });
-  next();
-});
-
-app.post('/api/admin/login', (req,res)=>{
-  try{
-    const { email, password } = req.body || {};
-    const e = String(email||'').trim().toLowerCase();
-    const p = String(password||'');
-    if(e !== ADMIN_EMAIL || p !== ADMIN_PASSWORD){
-      appendAccessLog({ kind:'admin_login', ok:false, email:e });
-      return res.status(401).json({ error:'Credenciais de administrador inválidas.' });
-    }
-    const token = signAdminToken({ role:'admin', email:e, exp: Date.now()+ADMIN_TOKEN_TTL_MS });
-    appendAccessLog({ kind:'admin_login', ok:true, email:e });
-    return res.json({ ok:true, token, admin:{ email:e } });
-  }catch(e){ return res.status(500).json({ error:'Erro no login administrativo.' }); }
-});
-
-app.get('/api/admin/users', requireAdmin, (req,res)=>{
-  try{
-    const users = readUsers().map(u=>({ id:u.id, name:u.name, email:u.email, phone:u.phone, createdAt:u.createdAt || null }));
-    users.sort((a,b)=> String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
-    return res.json({ ok:true, users });
-  }catch(e){ return res.status(500).json({ error:'Erro ao listar contas.' }); }
-});
-
-app.get('/api/admin/reservations', requireAdmin, async (req,res)=>{
-  try{
-    const missing = requireEnv();
-    if(missing.length){
-      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
-    }
-    await ensureAuth();
-    const now = new Date();
-    const days = Math.max(1, Math.min(180, Number(req.query.days || 60)));
-    const timeMin = now.toISOString();
-    const timeMax = new Date(now.getTime() + days*24*60*60*1000).toISOString();
-    const resp = await calendar.events.list({ calendarId: CALENDAR_ID, timeMin, timeMax, singleEvents:true, orderBy:'startTime', maxResults:2500 });
-    const items = (resp.data.items || []).filter(e=> String(e.start?.dateTime||'')).map(e=>{
-      const phone = extractPhoneFromEvent({ summary:e.summary||'', description:e.description||'', location:e.location||'' });
-      const nameM = String(e.description||'').match(/Cliente:\s*([^\n]+)/i);
-      const courtM = String(e.summary||'').match(/Quadra\s*(\d)/i);
-      return {
-        eventId:e.id,
-        date:String(e.start.dateTime).slice(0,10),
-        start:String(e.start.dateTime).slice(11,16),
-        end:String(e.end?.dateTime||'').slice(11,16),
-        summary:e.summary||'',
-        court:courtM ? `Quadra ${courtM[1]}` : '',
-        customerName: nameM ? nameM[1].trim() : '',
-        phone
-      };
-    });
-    return res.json({ ok:true, reservations: items });
-  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao listar reservas.' }); }
-});
-
-app.get('/api/admin/stats', requireAdmin, async (req,res)=>{
-  try{
-    const users = readUsers();
-    const logs = readAccessLogs();
-    const now = Date.now();
-    const since7 = now - 7*24*60*60*1000;
-    const since30 = now - 30*24*60*60*1000;
-    const inRange = (l,t)=> { const x=Date.parse(l.ts||''); return Number.isFinite(x) && x>=t; };
-    const countPath = (path,t)=> logs.filter(l=>l.kind==='http' && l.path===path && (!t || inRange(l,t))).length;
-    const registrations = logs.filter(l=>l.kind==='auth_register' && l.ok).length;
-    const logins = logs.filter(l=>l.kind==='auth_login' && l.ok).length;
-
-    let upcomingCount = 0;
-    try{
-      const missing = requireEnv();
-      if(!missing.length){
-        await ensureAuth();
-        const resp = await calendar.events.list({ calendarId: CALENDAR_ID, timeMin:new Date().toISOString(), timeMax:new Date(Date.now()+60*24*60*60*1000).toISOString(), singleEvents:true, orderBy:'startTime', maxResults:2500 });
-        upcomingCount = (resp.data.items||[]).filter(e=>e.start?.dateTime).length;
-      }
-    }catch(e){}
-
-    return res.json({ ok:true, stats:{
-      totalUsers: users.length,
-      totalReservationsUpcoming: upcomingCount,
-      totalUserLogins: logins,
-      totalRegistrations: registrations,
-      hits7d: logs.filter(l=>l.kind==='http' && inRange(l,since7)).length,
-      hits30d: logs.filter(l=>l.kind==='http' && inRange(l,since30)).length,
-      bookings7d: countPath('/api/book', since7),
-      bookings30d: countPath('/api/book', since30),
-      reservationsViews7d: countPath('/api/my_reservations', since7),
-      cancelAttempts7d: countPath('/api/cancel_by_phone', since7),
-      accessRateEstimate7d: countPath('/api/my_reservations', since7) + countPath('/api/auth/login', since7)
-    }});
-  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao gerar métricas.' }); }
+// (Opcional) teste de rota protegida ADM
+app.get('/api/admin/me', adminAuth, (req, res) => {
+  return res.json({ ok: true, admin: { email: ADMIN_EMAIL } });
 });
 
 app.listen(PORT, ()=>{
