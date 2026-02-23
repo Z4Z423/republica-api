@@ -13,58 +13,56 @@ const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
 // CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin: function(origin, cb){
-    // allow server-to-server / curl without origin
-    if(!origin) return cb(null, true);
+    if(!origin) return cb(null, true); // curl / server-to-server
     if(allowedOrigins.length === 0) return cb(null, true); // permissivo por padrão
     return cb(null, allowedOrigins.includes(origin));
   }
 }));
 
 // === Google Calendar auth (Service Account) ===
-// Você precisa compartilhar sua agenda com o e-mail da Service Account (permissão "Fazer alterações em eventos")
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID; // ex: napraiasjp@gmail.com ou ID da agenda
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
 
-// Preferência 1: JSON completo (mais fácil em deploy): GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 do arquivo .json)
 let SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 let SA_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 
 const SA_JSON_B64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
-const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // (opcional) JSON em texto
+const SA_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
 function loadServiceAccountFromEnv(){
   try{
     let raw = null;
     if(SA_JSON_B64){
       raw = Buffer.from(SA_JSON_B64, 'base64').toString('utf8');
-    } else if(SA_JSON_RAW){
+    }else if(SA_JSON_RAW){
       raw = SA_JSON_RAW;
     }
     if(!raw) return;
+
     const obj = JSON.parse(raw);
     if(obj.client_email) SA_EMAIL = obj.client_email;
     if(obj.private_key) SA_PRIVATE_KEY = obj.private_key;
   }catch(e){
-    // se der erro, mantém o modo antigo por env vars
+    // fallback para envs separados
   }
 }
 loadServiceAccountFromEnv();
 
 if (SA_PRIVATE_KEY) {
-  // Render/Heroku geralmente guardam com \n literal
   SA_PRIVATE_KEY = SA_PRIVATE_KEY.replace(/\\n/g, '\n');
 }
 
 function requireEnv(){
   const missing = [];
   if(!CALENDAR_ID) missing.push('GOOGLE_CALENDAR_ID');
-
-  // Se você usar GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, não precisa setar EMAIL/KEY separados.
   if(!SA_EMAIL) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
   if(!SA_PRIVATE_KEY) missing.push('GOOGLE_PRIVATE_KEY (ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)');
-
   return missing;
 }
 
@@ -77,11 +75,11 @@ const jwtClient = new google.auth.JWT({
 const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
+function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 
-function normalizePhone(s){
-  return String(s||'').replace(/\D+/g,''); // only digits
-}
-
+// =========================
+// Arquivos / Auth local
+// =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
 const USERS_FILE = path.join(process.cwd(), 'users.json');
 
@@ -98,11 +96,7 @@ function makeAdminToken(){
     exp: Date.now() + ADMIN_TOKEN_TTL_HOURS * 60 * 60 * 1000
   };
   const json = JSON.stringify(payload);
-  const sig = crypto
-    .createHmac('sha256', AUTH_SECRET)
-    .update(json)
-    .digest('hex');
-
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(json).digest('hex');
   return Buffer.from(`${json}.${sig}`).toString('base64url');
 }
 
@@ -116,11 +110,7 @@ function verifyAdminToken(token){
     const json = raw.slice(0, idx);
     const sig = raw.slice(idx + 1);
 
-    const expected = crypto
-      .createHmac('sha256', AUTH_SECRET)
-      .update(json)
-      .digest('hex');
-
+    const expected = crypto.createHmac('sha256', AUTH_SECRET).update(json).digest('hex');
     if(sig !== expected) return false;
 
     const payload = JSON.parse(json);
@@ -148,7 +138,7 @@ function readUsers(){
     const raw = fs.readFileSync(USERS_FILE, 'utf8');
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
-  }catch(e){
+  }catch{
     return [];
   }
 }
@@ -158,7 +148,10 @@ function writeUsers(users){
 }
 
 function hashPassword(password){
-  return crypto.createHash('sha256').update(String(password) + '|' + AUTH_SECRET).digest('hex');
+  return crypto
+    .createHash('sha256')
+    .update(String(password) + '|' + AUTH_SECRET)
+    .digest('hex');
 }
 
 function makePublicUser(u){
@@ -166,17 +159,29 @@ function makePublicUser(u){
 }
 
 function extractPhoneFromEvent(ev){
-  const hay = `${ev.summary||''}\n${ev.description||''}\n${ev.location||''}`;
+  const hay = `${ev.summary || ''}\n${ev.description || ''}\n${ev.location || ''}`;
   const m = hay.match(/WhatsApp:\s*([^\n]+)/i);
   if(!m) return '';
   return normalizePhone(m[1]);
 }
 
+function extractCustomerFromEvent(ev){
+  const desc = String(ev.description || '');
+  const m = desc.match(/Cliente:\s*([^\n]+)/i);
+  return m ? m[1].trim() : '';
+}
+
+async function ensureAuth(){
+  await jwtClient.authorize();
+}
+
 async function listUpcomingReservationsByPhone(phoneDigits){
   await ensureAuth();
+
   const now = new Date();
   const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + 1000*60*60*24*120).toISOString(); // 120 days
+  const timeMax = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 120).toISOString();
+
   const resp = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin,
@@ -185,7 +190,8 @@ async function listUpcomingReservationsByPhone(phoneDigits){
     orderBy: 'startTime',
     maxResults: 2500
   });
-  const items = (resp.data.items || []).map(e=>({
+
+  const items = (resp.data.items || []).map(e => ({
     id: e.id,
     summary: e.summary || '',
     description: e.description || '',
@@ -193,9 +199,10 @@ async function listUpcomingReservationsByPhone(phoneDigits){
     start: e.start?.dateTime || e.start?.date || '',
     end: e.end?.dateTime || e.end?.date || ''
   }));
+
   const out = [];
   for(const ev of items){
-    if(!ev.start || String(ev.start).length<=10) continue; // ignore all-day
+    if(!ev.start || String(ev.start).length <= 10) continue; // ignora dia inteiro
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
     if(ph === phoneDigits){
@@ -210,34 +217,31 @@ async function listUpcomingReservationsByPhone(phoneDigits){
   return out;
 }
 
-// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset.
-// O Google usa o timeZone do requestBody para interpretar corretamente.
+// Converte "YYYY-MM-DD" + "HH:MM" para ISO sem offset (Google interpreta pelo timeZone)
 function toDateTimeISO(dateStr, timeStr){
   return `${dateStr}T${timeStr}:00`;
 }
 
 // ====== Regras de disponibilidade ======
-// Locação avulsa NÃO disponível em sábado/domingo
 function isWeekend(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0)); // meio-dia UTC evita "virar dia" por fuso
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
   const dow = dt.getUTCDay(); // 0=Dom, 6=Sáb
   return dow === 0 || dow === 6;
 }
 
-// Gera lista de slots conforme dia:
-// - Seg–Sex: 17:00–23:00 (início inclusive, fim exclusivo)
-// - Sáb–Dom: 09:00–19:00 (início inclusive, fim exclusivo)
+// Seg-Sex 17:00–23:00 | Sáb-Dom 09:00–19:00
 function generateSlots(dateISO, durationMinutes){
-  const weekend = isWeekend(String(dateISO||''));
+  const weekend = isWeekend(String(dateISO || ''));
   const startHour = weekend ? 9 : 17;
-  const endHour   = weekend ? 19 : 23;
+  const endHour = weekend ? 19 : 23;
 
   const slots = [];
-  const lastStart = endHour*60 - durationMinutes;
-  for(let t = startHour*60; t <= lastStart; t += 60){
-    const sh = Math.floor(t/60), sm = t%60;
-    const eh = Math.floor((t+durationMinutes)/60), em = (t+durationMinutes)%60;
+  const lastStart = endHour * 60 - durationMinutes;
+
+  for(let t = startHour * 60; t <= lastStart; t += 60){
+    const sh = Math.floor(t / 60), sm = t % 60;
+    const eh = Math.floor((t + durationMinutes) / 60), em = (t + durationMinutes) % 60;
     slots.push({ start: `${pad(sh)}:${pad(sm)}`, end: `${pad(eh)}:${pad(em)}` });
   }
   return slots;
@@ -248,10 +252,6 @@ function overlaps(aStart, aEnd, bStart, bEnd){
 }
 
 // ====== Classificação de eventos para quadras ======
-// 1) Se o evento tem "Quadra 1/2" (ou Q1/Q2) no título/descrição/local → usa isso.
-// 2) Se não tiver, tenta mapear por palavras-chave (configurável).
-// 3) Se ainda assim não der, considera "ocupando 1 quadra (desconhecida)".
-//    Isso resolve o bug de aparecer 0 quadras quando existe só 1 aula no horário.
 let DEFAULT_KEYWORD_MAP = [
   { pattern: 'futevolei|futvolei|futev[oó]lei', court: 1 },
   { pattern: 'v[oó]lei(?!.*fute)', court: 2 },
@@ -263,10 +263,12 @@ try{
     const parsed = JSON.parse(process.env.COURT_KEYWORDS_JSON);
     if(Array.isArray(parsed) && parsed.length) DEFAULT_KEYWORD_MAP = parsed;
   }
-}catch(e){ /* ignora */ }
+}catch{
+  // ignora
+}
 
 function classifyEventToCourts(ev){
-  const text = `${ev.summary||''} ${ev.description||''} ${ev.location||''}`.toLowerCase();
+  const text = `${ev.summary || ''} ${ev.description || ''} ${ev.location || ''}`.toLowerCase();
 
   const q1 = text.includes('quadra 1') || text.includes('q1') || text.includes('quadra1');
   const q2 = text.includes('quadra 2') || text.includes('q2') || text.includes('quadra2');
@@ -275,7 +277,6 @@ function classifyEventToCourts(ev){
   if(q2 && !q1) return { kind:'known', courts:[2], blockBoth:false };
   if(q1 && q2) return { kind:'known', courts:[1,2], blockBoth:true };
 
-  // keyword mapping
   for(const rule of DEFAULT_KEYWORD_MAP){
     try{
       const re = new RegExp(rule.pattern, 'i');
@@ -283,15 +284,15 @@ function classifyEventToCourts(ev){
         const c = Number(rule.court);
         if(c === 1 || c === 2) return { kind:'known', courts:[c], blockBoth:false };
       }
-    }catch(e){ /* ignora regra inválida */ }
+    }catch{
+      // ignora regra inválida
+    }
   }
 
-  // fallback: ocupa 1 quadra sem especificar qual
   return { kind:'unknownSingle', courts:[], blockBoth:false };
 }
 
 async function listEventsForDay(dateStr){
-  // busca eventos do dia inteiro (00:00 a 23:59) no TZ
   const timeMin = `${dateStr}T00:00:00-03:00`;
   const timeMax = `${dateStr}T23:59:59-03:00`;
 
@@ -309,24 +310,20 @@ async function listEventsForDay(dateStr){
     summary: ev.summary || '',
     description: ev.description || '',
     location: ev.location || '',
-    start: ev.start?.dateTime || ev.start?.date, // dateTime preferido
+    start: ev.start?.dateTime || ev.start?.date,
     end: ev.end?.dateTime || ev.end?.date
   }));
 }
 
-// Converte dateTime ISO para minutos desde 00:00 em TZ.
-// - Se ISO já tiver offset (ex.: -03:00), pegamos HH:MM do texto direto (mais fiel).
-// - Se vier em UTC (…Z), converte com Intl no fuso TZ.
 function isoToMinutes(iso){
   const s = String(iso || '');
-  // Caso comum: 2026-02-12T18:00:00-03:00  → usa 18:00 direto
+
   const mOffset = s.match(/T(\d{2}):(\d{2}).*([+-]\d{2}:?\d{2})$/);
   if(mOffset){
     return Number(mOffset[1]) * 60 + Number(mOffset[2]);
   }
 
-  // Caso UTC: ...Z
-  try {
+  try{
     const d = new Date(s);
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: TZ,
@@ -334,13 +331,14 @@ function isoToMinutes(iso){
       minute: '2-digit',
       hour12: false
     }).formatToParts(d);
+
     const hh = Number(parts.find(p => p.type === 'hour')?.value ?? '0');
     const mm = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
     return hh * 60 + mm;
-  } catch {
+  }catch{
     const m = s.match(/T(\d{2}):(\d{2})/);
     if(!m) return 0;
-    return Number(m[1])*60 + Number(m[2]);
+    return Number(m[1]) * 60 + Number(m[2]);
   }
 }
 
@@ -349,15 +347,14 @@ function computeAvailability(events, duration, date){
   const out = baseSlots.map(s => ({ ...s, availableCourts: 2 }));
 
   for(const slot of out){
-    const slotStartMin = Number(slot.start.split(':')[0])*60 + Number(slot.start.split(':')[1]);
-    const slotEndMin = Number(slot.end.split(':')[0])*60 + Number(slot.end.split(':')[1]);
+    const slotStartMin = Number(slot.start.split(':')[0]) * 60 + Number(slot.start.split(':')[1]);
+    const slotEndMin = Number(slot.end.split(':')[0]) * 60 + Number(slot.end.split(':')[1]);
 
-    let busyKnown = new Set();  // quadras conhecidas ocupadas
-    let unknownCount = 0;       // eventos sem quadra definida (ocupam 1 quadra)
+    let busyKnown = new Set();
+    let unknownCount = 0;
 
     for(const ev of events){
-      // all-day bloqueia tudo
-      if(String(ev.start).length <= 10) {
+      if(String(ev.start).length <= 10){
         busyKnown = new Set([1,2]);
         unknownCount = 0;
         break;
@@ -391,12 +388,10 @@ function computeAvailability(events, duration, date){
   return out;
 }
 
-async function ensureAuth(){
-  // força autenticação (principalmente no primeiro request)
-  await jwtClient.authorize();
-}
-
-app.get('/health', async (req,res)=>{
+// =========================
+// Health
+// =========================
+app.get('/health', async (req, res) => {
   const missing = requireEnv();
   if(missing.length){
     return res.status(500).json({ ok:false, error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
@@ -404,6 +399,9 @@ app.get('/health', async (req,res)=>{
   return res.json({ ok:true });
 });
 
+// =========================
+// Horários / Reservas
+// =========================
 app.get('/api/slots', async (req,res)=>{
   try{
     const missing = requireEnv();
@@ -413,6 +411,7 @@ app.get('/api/slots', async (req,res)=>{
 
     const date = String(req.query.date || '');
     const duration = Number(req.query.duration || 60);
+
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
     if(![60,120].includes(duration)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
 
@@ -423,7 +422,7 @@ app.get('/api/slots', async (req,res)=>{
     res.json({ date, duration, slots });
   }catch(e){
     console.error(e);
-    res.status(500).json({ error: 'Erro ao buscar horários.' });
+    res.status(500).json({ error:'Erro ao buscar horários.' });
   }
 });
 
@@ -435,20 +434,20 @@ app.post('/api/book', async (req,res)=>{
     }
 
     const { date, start, duration, name, phone } = req.body || {};
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
-    if(!/^\d{2}:\d{2}$/.test(String(start||''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
+
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
+    if(!/^\d{2}:\d{2}$/.test(String(start || ''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
+
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
-    if(!String(name||'').trim() || !String(phone||'').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
+    if(!String(name || '').trim() || !String(phone || '').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
-    // calcula end
-    const startMin = Number(start.split(':')[0])*60 + Number(start.split(':')[1]);
+    const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
-    const endH = Math.floor(endMin/60);
-    const endM = endMin%60;
+    const endH = Math.floor(endMin / 60);
+    const endM = endMin % 60;
     const end = `${pad(endH)}:${pad(endM)}`;
 
-    // valida se o horário solicitado existe na grade do dia (evita reservas fora do funcionamento)
     const allowedSlots = generateSlots(String(date), dur);
     const isValidSlot = allowedSlots.some(s => s.start === String(start) && s.end === String(end));
     if(!isValidSlot){
@@ -458,20 +457,17 @@ app.post('/api/book', async (req,res)=>{
     await ensureAuth();
     const events = await listEventsForDay(String(date));
 
-    // Eventos que batem com o intervalo
-    const slotEvents = events.filter(ev=>{
-      if(String(ev.start).length <= 10) return true; // all-day bloqueia
+    const slotEvents = events.filter(ev => {
+      if(String(ev.start).length <= 10) return true;
       const evStartMin = isoToMinutes(ev.start);
       const evEndMin = isoToMinutes(ev.end);
       return overlaps(startMin, endMin, evStartMin, evEndMin);
     });
 
-    // Se existir all-day => indisponível
     if(slotEvents.some(ev => String(ev.start).length <= 10)){
       return res.status(409).json({ error:'Esse horário está indisponível.' });
     }
 
-    // Calcula ocupação: quadras conhecidas + quantidade de eventos "unknownSingle"
     const busyKnown = new Set();
     let unknownCount = 0;
 
@@ -492,17 +488,14 @@ app.post('/api/book', async (req,res)=>{
       return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
     }
 
-    // Escolhe uma quadra livre (prioriza a que NÃO está em busyKnown)
-    const freeCourts = [1,2].filter(c=>!busyKnown.has(c));
+    const freeCourts = [1,2].filter(c => !busyKnown.has(c));
     const chosen = freeCourts[0] ?? 1;
 
-    // cria evento no calendário
     const summary = `Locação Avulsa — Quadra ${chosen}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
-    const description =
-      `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur===120?'2h':'1h'}\nOrigem: site\n${warning}`;
+    const description = `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -517,7 +510,7 @@ app.post('/api/book', async (req,res)=>{
     });
 
     return res.json({
-      ok:true,
+      ok: true,
       court: `Quadra ${chosen}`,
       start,
       end,
@@ -530,7 +523,7 @@ app.post('/api/book', async (req,res)=>{
 });
 
 // =========================
-// Cancelamento por telefone (somente)
+// Cancelamento por telefone
 // =========================
 app.post('/api/cancel_lookup', async (req,res)=>{
   try{
@@ -538,6 +531,7 @@ app.post('/api/cancel_lookup', async (req,res)=>{
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
+
     const { phone } = req.body || {};
     const phoneDigits = normalizePhone(phone);
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
@@ -548,15 +542,12 @@ app.post('/api/cancel_lookup', async (req,res)=>{
       return res.json({ ok:true, reservations: [] });
     }
 
-    // formata para o front (data/hora local)
     const formatted = reservations.map(r => {
-      const start = r.start;
-      const end = r.end;
-      // pega "YYYY-MM-DD" e "HH:MM"
-      const date = String(start).slice(0,10);
-      const hhmm = String(start).slice(11,16);
-      const ehhmm = String(end).slice(11,16);
-      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
+      const date = String(r.start).slice(0,10);
+      const hhmm = String(r.start).slice(11,16);
+      const ehhmm = String(r.end).slice(11,16);
+      const courtMatch = String(r.summary || '').match(/Quadra\s*(\d)/i);
+
       return {
         eventId: r.eventId,
         date,
@@ -580,26 +571,29 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
+
     const { phone, eventId } = req.body || {};
     const phoneDigits = normalizePhone(phone);
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
 
     if(!eventId){
-      // se não veio eventId, tenta cancelar a próxima reserva
       const list = await listUpcomingReservationsByPhone(phoneDigits);
       if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse telefone.' });
-      // pega a primeira (mais próxima)
+
       const pick = list[0];
       await ensureAuth();
       await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: pick.eventId });
       return res.json({ ok:true, canceledEventId: pick.eventId });
     }
 
-    // valida que o eventId pertence ao telefone
     await ensureAuth();
     const ev = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
-    const desc = ev.data.description || '';
-    const ph = extractPhoneFromEvent({ summary: ev.data.summary||'', description: desc, location: ev.data.location||'' });
+    const ph = extractPhoneFromEvent({
+      summary: ev.data.summary || '',
+      description: ev.data.description || '',
+      location: ev.data.location || ''
+    });
+
     if(ph !== phoneDigits){
       return res.status(403).json({ error:'Este telefone não confere com a reserva.' });
     }
@@ -613,27 +607,49 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
 });
 
 // =========================
-// Auth simples (arquivo local users.json)
+// Auth usuários
 // =========================
 app.post('/api/auth/register', (req,res)=>{
   try{
     const { name, email, phone, password } = req.body || {};
-    const cleanName = String(name||'').trim();
-    const cleanEmail = String(email||'').trim().toLowerCase();
+    const cleanName = String(name || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanPhone = normalizePhone(phone);
-    const cleanPass = String(password||'');
-    if(!cleanName || !cleanEmail || !cleanPhone || !cleanPass) return res.status(400).json({ error:'Preencha nome, e-mail, WhatsApp e senha.' });
-    if(cleanPass.length < 4) return res.status(400).json({ error:'A senha deve ter pelo menos 4 caracteres.' });
+    const cleanPass = String(password || '');
+
+    if(!cleanName || !cleanEmail || !cleanPhone || !cleanPass){
+      return res.status(400).json({ error:'Preencha nome, e-mail, WhatsApp e senha.' });
+    }
+    if(cleanPass.length < 4){
+      return res.status(400).json({ error:'A senha deve ter pelo menos 4 caracteres.' });
+    }
 
     const users = readUsers();
-    if(users.find(u => String(u.email).toLowerCase() === cleanEmail)) return res.status(409).json({ error:'Este e-mail já está cadastrado.' });
-    if(users.find(u => normalizePhone(u.phone) === cleanPhone)) return res.status(409).json({ error:'Este WhatsApp já está cadastrado.' });
 
-    const user = { id: crypto.randomUUID(), name: cleanName, email: cleanEmail, phone: cleanPhone, passwordHash: hashPassword(cleanPass), createdAt: new Date().toISOString() };
+    if(users.find(u => String(u.email).toLowerCase() === cleanEmail)){
+      return res.status(409).json({ error:'Este e-mail já está cadastrado.' });
+    }
+    if(users.find(u => normalizePhone(u.phone) === cleanPhone)){
+      return res.status(409).json({ error:'Este WhatsApp já está cadastrado.' });
+    }
+
+    const user = {
+      id: crypto.randomUUID(),
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      passwordHash: hashPassword(cleanPass),
+      createdAt: new Date().toISOString()
+    };
+
     users.push(user);
     writeUsers(users);
+
     return res.json({ ok:true, user: makePublicUser(user) });
-  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao criar conta.' }); }
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao criar conta.' });
+  }
 });
 
 app.post('/api/auth/login', (req,res)=>{
@@ -641,34 +657,60 @@ app.post('/api/auth/login', (req,res)=>{
     const { login, email, phone, password } = req.body || {};
     const rawLogin = String(login || email || phone || '').trim();
     const byEmail = rawLogin.includes('@');
+
     const cleanEmail = String(email || (byEmail ? rawLogin : '') || '').trim().toLowerCase();
     const cleanPhone = normalizePhone(phone || (!byEmail ? rawLogin : ''));
+
     const users = readUsers();
-    const user = users.find(u => (cleanEmail && String(u.email).toLowerCase()===cleanEmail) || (cleanPhone && normalizePhone(u.phone)===cleanPhone));
+    const user = users.find(u =>
+      (cleanEmail && String(u.email).toLowerCase() === cleanEmail) ||
+      (cleanPhone && normalizePhone(u.phone) === cleanPhone)
+    );
+
     if(!user) return res.status(404).json({ error:'Conta não encontrada.' });
-    if(user.passwordHash !== hashPassword(password || '')) return res.status(401).json({ error:'Senha inválida.' });
+    if(user.passwordHash !== hashPassword(password || '')){
+      return res.status(401).json({ error:'Senha inválida.' });
+    }
+
     return res.json({ ok:true, user: makePublicUser(user) });
-  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro no login.' }); }
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro no login.' });
+  }
 });
 
 app.get('/api/my_reservations', async (req,res)=>{
   try{
     const phoneDigits = normalizePhone(req.query.phone);
     if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+
     const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+
     const formatted = reservations.map(r => {
       const date = String(r.start).slice(0,10);
       const hhmm = String(r.start).slice(11,16);
       const ehhmm = String(r.end).slice(11,16);
-      const courtMatch = String(r.summary||'').match(/Quadra\s*(\d)/i);
-      return { eventId:r.eventId, date, start:hhmm, end:ehhmm, court: courtMatch ? `Quadra ${courtMatch[1]}` : '', summary:r.summary||'' };
+      const courtMatch = String(r.summary || '').match(/Quadra\s*(\d)/i);
+
+      return {
+        eventId: r.eventId,
+        date,
+        start: hhmm,
+        end: ehhmm,
+        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
+        summary: r.summary || ''
+      };
     });
+
     return res.json({ ok:true, reservations: formatted });
-  }catch(e){ console.error(e); return res.status(500).json({ error:'Erro ao buscar reservas da conta.' }); }
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao buscar reservas da conta.' });
+  }
 });
 
 // =========================
-// Admin login (somente e-mail + senha)
+// Admin login / sessão
 // =========================
 app.post('/api/admin/login', (req, res) => {
   try{
@@ -676,11 +718,11 @@ app.post('/api/admin/login', (req, res) => {
     const password = String(req.body?.password || '');
 
     if(!email || !password){
-      return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+      return res.status(400).json({ error:'E-mail e senha são obrigatórios.' });
     }
 
     if(email !== String(ADMIN_EMAIL).toLowerCase() || password !== String(ADMIN_PASSWORD)){
-      return res.status(401).json({ error: 'Credenciais inválidas.' });
+      return res.status(401).json({ error:'Credenciais inválidas.' });
     }
 
     const token = makeAdminToken();
@@ -692,15 +734,132 @@ app.post('/api/admin/login', (req, res) => {
     });
   }catch(e){
     console.error(e);
-    return res.status(500).json({ error: 'Erro no login ADM.' });
+    return res.status(500).json({ error:'Erro no login ADM.' });
   }
 });
 
-// (Opcional) teste de rota protegida ADM
 app.get('/api/admin/me', adminAuth, (req, res) => {
-  return res.json({ ok: true, admin: { email: ADMIN_EMAIL } });
+  return res.json({ ok:true, admin:{ email: ADMIN_EMAIL } });
 });
 
-app.listen(PORT, ()=>{
+// =========================
+// Admin APIs (painel)
+// =========================
+
+// Lista contas cadastradas (sem senha)
+app.get('/api/admin/users', adminAuth, (req, res) => {
+  try{
+    const users = readUsers()
+      .map(u => ({
+        id: u.id,
+        name: u.name || '',
+        email: u.email || '',
+        phone: u.phone || '',
+        createdAt: u.createdAt || ''
+      }))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+    return res.json({ ok:true, users });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao buscar usuários.' });
+  }
+});
+
+// Lista reservas futuras (todas)
+app.get('/api/admin/reservations', adminAuth, async (req, res) => {
+  try{
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+
+    await ensureAuth();
+
+    const now = new Date();
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 120).toISOString();
+
+    const resp = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 2500
+    });
+
+    const reservations = (resp.data.items || [])
+      .filter(ev => !!(ev.start?.dateTime || ev.start?.date))
+      .map(ev => {
+        const start = ev.start?.dateTime || ev.start?.date || '';
+        const end = ev.end?.dateTime || ev.end?.date || '';
+
+        return {
+          eventId: ev.id,
+          summary: ev.summary || '',
+          customer: extractCustomerFromEvent(ev),
+          phone: extractPhoneFromEvent(ev),
+          start,
+          end
+        };
+      })
+      .filter(r => String(r.start).length > 10) // ignora all-day
+      .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+
+    return res.json({ ok:true, reservations });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao buscar reservas.' });
+  }
+});
+
+// Métricas simples
+app.get('/api/admin/stats', adminAuth, async (req, res) => {
+  try{
+    const users = readUsers();
+    let reservationsCount = 0;
+
+    try{
+      const missing = requireEnv();
+      if(missing.length === 0){
+        await ensureAuth();
+
+        const now = new Date();
+        const timeMin = now.toISOString();
+        const timeMax = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 120).toISOString();
+
+        const resp = await calendar.events.list({
+          calendarId: CALENDAR_ID,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: 'startTime',
+          maxResults: 2500
+        });
+
+        reservationsCount = (resp.data.items || [])
+          .filter(ev => String(ev.start?.dateTime || '').length > 10)
+          .length;
+      }
+    }catch(err){
+      console.error('Erro stats reservas:', err);
+    }
+
+    return res.json({
+      ok: true,
+      stats: {
+        totalUsers: users.length,
+        totalReservationsFuture: reservationsCount,
+        adminEmail: ADMIN_EMAIL
+      }
+    });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao buscar métricas.' });
+  }
+});
+
+app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
 });
