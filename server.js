@@ -26,6 +26,80 @@ app.use(cors({
   }
 }));
 
+// === Pagamentos (Mercado Pago Checkout Pro) ===
+// Para ativar: configure MP_ACCESS_TOKEN e SITE_PUBLIC_URL no Render/servidor
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+const SITE_PUBLIC_URL = (process.env.SITE_PUBLIC_URL || '').replace(/\/$/, '');
+const REQUIRE_PAYMENT = String(process.env.REQUIRE_PAYMENT || '1') === '1';
+
+const PAYMENTS_FILE = path.resolve(process.cwd(), 'payments.json');
+
+function readJsonSafe(fp, fallback){
+  try{
+    if(!fs.existsSync(fp)) return fallback;
+    const raw = fs.readFileSync(fp, 'utf-8');
+    return raw ? JSON.parse(raw) : fallback;
+  }catch(e){
+    console.error('readJsonSafe error', e);
+    return fallback;
+  }
+}
+function writeJsonSafe(fp, data){
+  try{
+    fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8');
+  }catch(e){
+    console.error('writeJsonSafe error', e);
+  }
+}
+function paymentsDb(){
+  return readJsonSafe(PAYMENTS_FILE, { drafts: {} });
+}
+function savePaymentsDb(db){
+  writeJsonSafe(PAYMENTS_FILE, db);
+}
+
+function requirePaymentEnv(){
+  const missing = [];
+  if(!MP_ACCESS_TOKEN) missing.push('MP_ACCESS_TOKEN');
+  if(!SITE_PUBLIC_URL) missing.push('SITE_PUBLIC_URL');
+  return missing;
+}
+
+async function mpCreatePreference({ external_reference, title, amount, back_urls }){
+  const payload = {
+    items: [{ title, quantity: 1, unit_price: Number(amount) }],
+    external_reference,
+    back_urls,
+    auto_return: 'approved',
+    statement_descriptor: 'REPUBLICA PRAIA'
+  };
+
+  const r = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${MP_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await r.json().catch(()=> ({}));
+  if(!r.ok){
+    throw new Error(data?.message || data?.error || 'Erro ao criar preferência no Mercado Pago');
+  }
+  return data;
+}
+
+async function mpGetPayment(payment_id){
+  const r = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(payment_id)}`, {
+    headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
+  });
+  const data = await r.json().catch(()=> ({}));
+  if(!r.ok){
+    throw new Error(data?.message || data?.error || 'Erro ao consultar pagamento no Mercado Pago');
+  }
+  return data;
+}
+
 // === Google Calendar auth (Service Account) ===
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
 
@@ -400,6 +474,113 @@ app.get('/health', async (req, res) => {
 });
 
 // =========================
+// Pagamentos
+// =========================
+
+// Cria preferência do Mercado Pago (PIX + Cartão) e retorna o link de pagamento
+app.post('/api/payment/create_preference', async (req,res)=>{
+  try{
+    const payMissing = requirePaymentEnv();
+    if(payMissing.length){
+      return res.status(500).json({ error:`Pagamentos não configurados: ${payMissing.join(', ')}` });
+    }
+
+    let input;
+    try{
+      input = validateBookingInput(req.body || {});
+    }catch(e){
+      return res.status(400).json({ error: String(e.message || e) });
+    }
+
+    const external_reference = crypto.randomUUID();
+    const db = paymentsDb();
+    db.drafts[external_reference] = {
+      createdAt: new Date().toISOString(),
+      booked: false,
+      booking: input
+    };
+    savePaymentsDb(db);
+
+    const back_urls = {
+      success: `${SITE_PUBLIC_URL}/pagamento/sucesso.html`,
+      pending: `${SITE_PUBLIC_URL}/pagamento/pendente.html`,
+      failure: `${SITE_PUBLIC_URL}/pagamento/erro.html`
+    };
+
+    const pref = await mpCreatePreference({
+      external_reference,
+      title: 'Taxa de reserva — República da Praia',
+      amount: 15.00,
+      back_urls
+    });
+
+    return res.json({
+      ok: true,
+      external_reference,
+      preference_id: pref.id,
+      init_point: pref.init_point,
+      sandbox_init_point: pref.sandbox_init_point
+    });
+  }catch(e){
+    return res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// Confirma pagamento e, se aprovado, cria a reserva (UMA vez) e retorna os dados
+app.get('/api/payment/finalize', async (req,res)=>{
+  try{
+    const payMissing = requirePaymentEnv();
+    if(payMissing.length){
+      return res.status(500).json({ error:`Pagamentos não configurados: ${payMissing.join(', ')}` });
+    }
+
+    const payment_id = String(req.query.payment_id || '').trim();
+    const external_reference = String(req.query.external_reference || '').trim();
+    if(!payment_id || !external_reference){
+      return res.status(400).json({ error:'payment_id e external_reference são obrigatórios.' });
+    }
+
+    const db = paymentsDb();
+    const draft = db.drafts[external_reference];
+    if(!draft){
+      return res.status(404).json({ error:'Rascunho de reserva não encontrado.' });
+    }
+    if(draft.booked){
+      return res.json({ ok:true, alreadyBooked:true, booking: draft.result });
+    }
+
+    const p = await mpGetPayment(payment_id);
+    if(String(p.external_reference || '') !== external_reference){
+      return res.status(400).json({ error:'Pagamento não corresponde ao external_reference.' });
+    }
+
+    if(String(p.status) !== 'approved'){
+      return res.status(202).json({ ok:false, status: p.status, status_detail: p.status_detail || null });
+    }
+
+    // Faz a reserva agora
+    const missing = requireEnv();
+    if(missing.length){
+      return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    }
+
+    const paymentInfo = { id: String(payment_id), method: p.payment_method_id || 'Mercado Pago', status: p.status };
+    const booked = await bookCore({ ...draft.booking, payment: paymentInfo });
+
+    draft.booked = true;
+    draft.result = booked;
+    draft.payment = paymentInfo;
+    savePaymentsDb(db);
+
+    return res.json({ ok:true, booking: booked });
+  }catch(e){
+    const status = e?.status || 500;
+    return res.status(status).json({ error: String(e.message || e) });
+  }
+});
+
+
+// =========================
 // Horários / Reservas
 // =========================
 app.get('/api/slots', async (req,res)=>{
@@ -426,6 +607,104 @@ app.get('/api/slots', async (req,res)=>{
   }
 });
 
+// === Reserva (núcleo) ===
+function validateBookingInput(body){
+  const { date, start, duration, name, phone } = body || {};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('date inválida (YYYY-MM-DD)');
+  if(!/^\d{2}:\d{2}$/.test(String(start || ''))) throw new Error('start inválido (HH:MM)');
+  const dur = Number(duration || 60);
+  if(![60,120].includes(dur)) throw new Error('duration inválida (60 ou 120)');
+  if(!String(name || '').trim() || !String(phone || '').trim()) throw new Error('name e phone são obrigatórios');
+  return { date: String(date), start: String(start), duration: dur, name: String(name).trim(), phone: String(phone).trim() };
+}
+
+async function bookCore({ date, start, duration, name, phone, payment }){
+  const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
+  const endMin = startMin + duration;
+  const endH = Math.floor(endMin / 60);
+  const endM = endMin % 60;
+  const end = `${pad(endH)}:${pad(endM)}`;
+
+  const allowedSlots = generateSlots(String(date), duration);
+  const isValidSlot = allowedSlots.some(s => s.start === String(start) && s.end === String(end));
+  if(!isValidSlot){
+    const err = new Error('Horário inválido para esse dia.');
+    err.status = 400;
+    throw err;
+  }
+
+  await ensureAuth();
+  const events = await listEventsForDay(String(date));
+
+  const slotEvents = events.filter(ev => {
+    if(String(ev.start).length <= 10) return true;
+    const evStartMin = isoToMinutes(ev.start);
+    const evEndMin = isoToMinutes(ev.end);
+    return overlaps(startMin, endMin, evStartMin, evEndMin);
+  });
+
+  if(slotEvents.some(ev => String(ev.start).length <= 10)){
+    const err = new Error('Esse horário está indisponível.');
+    err.status = 409;
+    throw err;
+  }
+
+  const busyKnown = new Set();
+  let unknownCount = 0;
+
+  for(const ev of slotEvents){
+    const cls = classifyEventToCourts(ev);
+    if(cls.blockBoth){
+      const err = new Error('Esse horário está indisponível.');
+      err.status = 409;
+      throw err;
+    }
+    if(cls.kind === 'known'){
+      cls.courts.forEach(c => busyKnown.add(c));
+    }else if(cls.kind === 'unknownSingle'){
+      unknownCount += 1;
+    }
+  }
+
+  const totalBusy = Math.min(2, busyKnown.size + unknownCount);
+  if(totalBusy >= 2){
+    const err = new Error('Esse horário está lotado (2 quadras ocupadas).');
+    err.status = 409;
+    throw err;
+  }
+
+  const freeCourts = [1,2].filter(c => !busyKnown.has(c));
+  const chosen = freeCourts[0] ?? 1;
+
+  const summary = `Locação Avulsa — Quadra ${chosen}`;
+  const warning = (unknownCount > 0 && busyKnown.size === 0)
+    ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
+    : '';
+
+  const payLine = payment?.id ? `\nPagamento: ${payment.id} (${payment.method || 'Mercado Pago'})\nStatus: ${payment.status || ''}\n` : '';
+  const description = `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${duration === 120 ? '2h' : '1h'}\nOrigem: site\n${payLine}${warning}`;
+
+  const event = {
+    summary,
+    description,
+    start: { dateTime: toDateTimeISO(String(date), String(start)), timeZone: TZ },
+    end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
+  };
+
+  const created = await calendar.events.insert({
+    calendarId: CALENDAR_ID,
+    requestBody: event
+  });
+
+  return {
+    date,
+    start,
+    end,
+    court: `Quadra ${chosen}`,
+    eventId: created?.data?.id || null
+  };
+}
+
 app.post('/api/book', async (req,res)=>{
   try{
     const missing = requireEnv();
@@ -433,98 +712,42 @@ app.post('/api/book', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { date, start, duration, name, phone } = req.body || {};
-
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
-    if(!/^\d{2}:\d{2}$/.test(String(start || ''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
-
-    const dur = Number(duration || 60);
-    if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
-    if(!String(name || '').trim() || !String(phone || '').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
-
-    const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
-    const endMin = startMin + dur;
-    const endH = Math.floor(endMin / 60);
-    const endM = endMin % 60;
-    const end = `${pad(endH)}:${pad(endM)}`;
-
-    const allowedSlots = generateSlots(String(date), dur);
-    const isValidSlot = allowedSlots.some(s => s.start === String(start) && s.end === String(end));
-    if(!isValidSlot){
-      return res.status(400).json({ error:'Horário inválido para esse dia.' });
+    let input;
+    try{
+      input = validateBookingInput(req.body || {});
+    }catch(e){
+      return res.status(400).json({ error: String(e.message || e) });
     }
 
-    await ensureAuth();
-    const events = await listEventsForDay(String(date));
-
-    const slotEvents = events.filter(ev => {
-      if(String(ev.start).length <= 10) return true;
-      const evStartMin = isoToMinutes(ev.start);
-      const evEndMin = isoToMinutes(ev.end);
-      return overlaps(startMin, endMin, evStartMin, evEndMin);
-    });
-
-    if(slotEvents.some(ev => String(ev.start).length <= 10)){
-      return res.status(409).json({ error:'Esse horário está indisponível.' });
-    }
-
-    const busyKnown = new Set();
-    let unknownCount = 0;
-
-    for(const ev of slotEvents){
-      const cls = classifyEventToCourts(ev);
-      if(cls.blockBoth){
-        return res.status(409).json({ error:'Esse horário está indisponível.' });
+    // Se REQUIRE_PAYMENT=1, só reserva com pagamento aprovado
+    let paymentInfo = null;
+    if(REQUIRE_PAYMENT){
+      const { payment_id, external_reference } = req.body || {};
+      if(!payment_id){
+        return res.status(402).json({ error:'Pagamento obrigatório. Inicie o pagamento pelo botão de pagamento para confirmar a reserva.' });
       }
-      if(cls.kind === 'known'){
-        cls.courts.forEach(c => busyKnown.add(c));
-      }else if(cls.kind === 'unknownSingle'){
-        unknownCount += 1;
+      const payMissing = requirePaymentEnv();
+      if(payMissing.length){
+        return res.status(500).json({ error:`Pagamentos não configurados: ${payMissing.join(', ')}` });
       }
+      const p = await mpGetPayment(String(payment_id));
+      if(external_reference && String(p.external_reference || '') !== String(external_reference)){
+        return res.status(400).json({ error:'Pagamento não corresponde a esta reserva.' });
+      }
+      if(String(p.status) !== 'approved'){
+        return res.status(402).json({ error:`Pagamento ainda não aprovado (status: ${p.status}).` });
+      }
+      paymentInfo = { id: String(payment_id), method: p.payment_method_id || 'Mercado Pago', status: p.status };
     }
 
-    const totalBusy = Math.min(2, busyKnown.size + unknownCount);
-    if(totalBusy >= 2){
-      return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
-    }
-
-    const freeCourts = [1,2].filter(c => !busyKnown.has(c));
-    const chosen = freeCourts[0] ?? 1;
-
-    const summary = `Locação Avulsa — Quadra ${chosen}`;
-    const warning = (unknownCount > 0 && busyKnown.size === 0)
-      ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
-      : '';
-    const description = `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
-
-    const event = {
-      summary,
-      description,
-      start: { dateTime: toDateTimeISO(String(date), String(start)), timeZone: TZ },
-      end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
-    };
-
-    const created = await calendar.events.insert({
-      calendarId: CALENDAR_ID,
-      requestBody: event
-    });
-
-    return res.json({
-      ok: true,
-      court: `Quadra ${chosen}`,
-      start,
-      end,
-      eventId: created.data.id
-    });
+    const booked = await bookCore({ ...input, payment: paymentInfo });
+    return res.json(booked);
   }catch(e){
-    console.error(e);
-    res.status(500).json({ error:'Erro ao criar reserva.' });
+    const status = e?.status || 500;
+    return res.status(status).json({ error: String(e.message || e) });
   }
 });
 
-// =========================
-// Cancelamento por telefone
-// =========================
 app.post('/api/cancel_lookup', async (req,res)=>{
   try{
     const missing = requireEnv();
