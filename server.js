@@ -7,7 +7,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const app = express();
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
@@ -82,6 +82,28 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
 const USERS_FILE = path.join(process.cwd(), 'users.json');
+const CHAVEAMENTO_STATE_FILE = path.join(process.cwd(), 'chaveamento-state.json');
+
+function readChaveamentoState(){
+  try{
+    if(!fs.existsSync(CHAVEAMENTO_STATE_FILE)) return null;
+    const raw = fs.readFileSync(CHAVEAMENTO_STATE_FILE, 'utf8');
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(err){
+    console.error('Erro ao ler chaveamento-state.json:', err);
+    return null;
+  }
+}
+
+function writeChaveamentoState(data){
+  const payload = {
+    savedAt: new Date().toISOString(),
+    data
+  };
+  fs.writeFileSync(CHAVEAMENTO_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  return payload;
+}
 
 // =========================
 // Admin (somente e-mail + senha)
@@ -751,6 +773,41 @@ app.get('/api/my_reservations', async (req,res)=>{
 });
 
 // =========================
+// Chaveamento sincronizado
+// =========================
+app.get('/api/chaveamento/state', (req, res) => {
+  try{
+    const payload = readChaveamentoState();
+    return res.json({
+      ok: true,
+      savedAt: payload?.savedAt || null,
+      data: payload?.data || null
+    });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao carregar estado do chaveamento.' });
+  }
+});
+
+app.post('/api/chaveamento/state', (req, res) => {
+  try{
+    const data = req.body;
+    if(!data || typeof data !== 'object' || Array.isArray(data)){
+      return res.status(400).json({ error:'Payload inválido.' });
+    }
+
+    const payload = writeChaveamentoState(data);
+    return res.json({
+      ok: true,
+      savedAt: payload.savedAt
+    });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao salvar estado do chaveamento.' });
+  }
+});
+
+// =========================
 // Admin login / sessão
 // =========================
 app.post('/api/admin/login', (req, res) => {
@@ -781,114 +838,6 @@ app.post('/api/admin/login', (req, res) => {
 
 app.get('/api/admin/me', adminAuth, (req, res) => {
   return res.json({ ok:true, admin:{ email: ADMIN_EMAIL } });
-});
-
-
-
-// =========================
-// DRE compartilhado (JSON no servidor)
-// =========================
-const DRE_FILE = path.join(process.cwd(), 'dre_lancamentos.json');
-
-function readDreLancamentos(){
-  try{
-    if(!fs.existsSync(DRE_FILE)) return [];
-    const raw = fs.readFileSync(DRE_FILE, 'utf8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  }catch{
-    return [];
-  }
-}
-
-function writeDreLancamentos(items){
-  fs.writeFileSync(DRE_FILE, JSON.stringify(items, null, 2), 'utf8');
-}
-
-app.get('/api/dre/lancamentos', (req, res) => {
-  try{
-    const lancamentos = readDreLancamentos().sort((a,b) => {
-      const ka = `${a.competencia || ''}-${a.data || ''}-${a.id || ''}`;
-      const kb = `${b.competencia || ''}-${b.data || ''}-${b.id || ''}`;
-      return kb.localeCompare(ka);
-    });
-    return res.json({ ok:true, lancamentos });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao listar lançamentos do DRE.' });
-  }
-});
-
-app.post('/api/dre/lancamentos', (req, res) => {
-  try{
-    const body = req.body || {};
-    const required = ['id','categoria','grupo','secao','competencia','data','valor'];
-    for(const field of required){
-      if(body[field] === undefined || body[field] === null || body[field] === ''){
-        return res.status(400).json({ error:`Campo obrigatório ausente: ${field}` });
-      }
-    }
-
-    const destino = String(body.destino || 'gerencial').toLowerCase() === 'analitica' ? 'analitica' : 'gerencial';
-    const grupo = String(body.grupo || '').toLowerCase();
-    if(!['receita','deducao','custo','despesa'].includes(grupo)){
-      return res.status(400).json({ error:'Grupo do DRE inválido.' });
-    }
-
-    const anexos = Array.isArray(body.anexos) ? body.anexos.slice(0, 10).map(a => ({
-      name: String(a?.name || ''),
-      type: String(a?.type || ''),
-      size: Number(a?.size || 0),
-      dataUrl: String(a?.dataUrl || '')
-    })) : [];
-
-    const novo = {
-      id: String(body.id),
-      descricao: String(body.descricao || body.categoria || ''),
-      valor: Number(body.valor || 0),
-      data: String(body.data || ''),
-      grupo,
-      secao: String(body.secao || ''),
-      categoria: String(body.categoria || ''),
-      competencia: String(body.competencia || ''),
-      pagamento: String(body.pagamento || ''),
-      obs: String(body.obs || ''),
-      destino,
-      anexos,
-      createdAt: new Date().toISOString()
-    };
-
-    const lista = readDreLancamentos();
-    lista.push(novo);
-    writeDreLancamentos(lista);
-    return res.status(201).json({ ok:true, lancamento: novo });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao salvar lançamento do DRE.' });
-  }
-});
-
-app.delete('/api/dre/lancamentos/:id', (req, res) => {
-  try{
-    const id = String(req.params.id || '');
-    const lista = readDreLancamentos();
-    const nova = lista.filter(item => String(item.id) !== id);
-    writeDreLancamentos(nova);
-    return res.json({ ok:true, removed: lista.length - nova.length });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao excluir lançamento do DRE.' });
-  }
-});
-
-app.delete('/api/dre/lancamentos', (req, res) => {
-  try{
-    writeDreLancamentos([]);
-    return res.json({ ok:true });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao limpar lançamentos do DRE.' });
-  }
 });
 
 // =========================
