@@ -5,6 +5,10 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -81,8 +85,8 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // Arquivos / Auth local
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
-const USERS_FILE = path.join(process.cwd(), 'users.json');
-const CHAVEAMENTO_STATE_FILE = path.join(process.cwd(), 'chaveamento-state.json');
+const USERS_FILE = path.join(__dirname, 'users.json');
+const CHAVEAMENTO_STATE_FILE = path.join(__dirname, 'chaveamento-state.json');
 
 function readChaveamentoState(){
   try{
