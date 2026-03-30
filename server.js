@@ -962,6 +962,127 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
   }
 });
 
+
+
+// =========================
+// DRE / lançamentos admin
+// =========================
+const DRE_FILE = path.join(__dirname, 'dre-lancamentos.json');
+
+function readDreLancamentos(){
+  try{
+    if(!fs.existsSync(DRE_FILE)) return [];
+    const raw = fs.readFileSync(DRE_FILE, 'utf8');
+    if(!raw) return [];
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  }catch(err){
+    console.error('Erro ao ler dre-lancamentos.json:', err);
+    return [];
+  }
+}
+
+function writeDreLancamentos(items){
+  fs.writeFileSync(DRE_FILE, JSON.stringify(items, null, 2), 'utf8');
+  return items;
+}
+
+app.get('/api/dre/lancamentos', (req, res) => {
+  try{
+    const lancamentos = readDreLancamentos()
+      .sort((a, b) => {
+        const da = String(a?.data || '');
+        const db = String(b?.data || '');
+        if(db !== da) return db.localeCompare(da);
+        return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
+      });
+
+    return res.json({ ok:true, lancamentos });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao carregar lançamentos do DRE.' });
+  }
+});
+
+app.post('/api/dre/lancamentos', (req, res) => {
+  try{
+    const body = req.body || {};
+    const categoria = String(body.categoria || '').trim();
+    const grupo = String(body.grupo || '').trim();
+    const data = String(body.data || '').trim();
+    const competencia = String(body.competencia || '').trim();
+    const destino = String(body.destino || 'gerencial').trim();
+    const valor = Number(body.valor || 0);
+
+    if(!categoria || !grupo || !data || !competencia || !Number.isFinite(valor) || valor <= 0){
+      return res.status(400).json({ error:'Dados inválidos para salvar lançamento.' });
+    }
+
+    const lista = readDreLancamentos();
+    const item = {
+      id: String(body.id || crypto.randomUUID()),
+      descricao: String(body.descricao || categoria).trim(),
+      valor,
+      data,
+      grupo,
+      secao: String(body.secao || '').trim(),
+      categoria,
+      competencia,
+      competenciaManual: Boolean(body.competenciaManual),
+      pagamento: String(body.pagamento || '').trim(),
+      obs: String(body.obs || '').trim(),
+      anexos: Array.isArray(body.anexos) ? body.anexos : [],
+      destino: destino === 'analitica' ? 'analitica' : 'gerencial',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const idx = lista.findIndex(x => String(x.id) === item.id);
+    if(idx >= 0){
+      item.createdAt = lista[idx].createdAt || item.createdAt;
+      lista[idx] = { ...lista[idx], ...item, updatedAt: new Date().toISOString() };
+    }else{
+      lista.push(item);
+    }
+
+    writeDreLancamentos(lista);
+    return res.json({ ok:true, lancamento:item });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao salvar lançamento do DRE.' });
+  }
+});
+
+app.delete('/api/dre/lancamentos/:id', (req, res) => {
+  try{
+    const id = String(req.params.id || '').trim();
+    if(!id) return res.status(400).json({ error:'ID inválido.' });
+
+    const lista = readDreLancamentos();
+    const nova = lista.filter(item => String(item.id) !== id);
+
+    if(nova.length === lista.length){
+      return res.status(404).json({ error:'Lançamento não encontrado.' });
+    }
+
+    writeDreLancamentos(nova);
+    return res.json({ ok:true, removedId:id });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao remover lançamento do DRE.' });
+  }
+});
+
+app.delete('/api/dre/lancamentos', (req, res) => {
+  try{
+    writeDreLancamentos([]);
+    return res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao limpar lançamentos do DRE.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
 });
