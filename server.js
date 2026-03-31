@@ -453,18 +453,32 @@ function sortLancamentosDesc(items){
 
 function normalizeLancamento(input){
   const raw = input && typeof input === 'object' ? input : {};
+  const tipo = String(raw.tipo || raw.grupo || '').trim();
+  const secao = String(raw.secao || raw.subcategoria || '').trim();
+  const observacoes = String(raw.observacoes || raw.obs || '').trim();
+  const pagamento = String(raw.pagamento || '').trim();
+  const destino = String(raw.destino || 'gerencial').trim() || 'gerencial';
+  const anexos = Array.isArray(raw.anexos) ? raw.anexos : [];
+
   return {
     id: raw.id || crypto.randomUUID(),
     data: String(raw.data || '').trim(),
-    tipo: String(raw.tipo || '').trim(),
+    tipo,
+    grupo: tipo,
+    secao,
     categoria: String(raw.categoria || '').trim(),
-    subcategoria: String(raw.subcategoria || '').trim(),
+    subcategoria: secao,
     descricao: String(raw.descricao || '').trim(),
     valor: Number(raw.valor || 0),
     unidade: String(raw.unidade || '').trim(),
     painel: String(raw.painel || '').trim(),
     competencia: String(raw.competencia || '').trim(),
-    observacoes: String(raw.observacoes || '').trim(),
+    observacoes,
+    obs: observacoes,
+    pagamento,
+    anexos,
+    destino,
+    competenciaManual: Boolean(raw.competenciaManual),
     createdAt: raw.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -894,8 +908,8 @@ app.post('/api/dre/lancamentos', (req, res) => {
     if(!item.data){
       return res.status(400).json({ error:'Campo data é obrigatório.' });
     }
-    if(!item.tipo){
-      return res.status(400).json({ error:'Campo tipo é obrigatório.' });
+    if(!item.tipo && !item.grupo){
+      return res.status(400).json({ error:'Campo grupo/tipo é obrigatório.' });
     }
     if(!Number.isFinite(item.valor)){
       return res.status(400).json({ error:'Campo valor inválido.' });
