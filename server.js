@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '12mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
@@ -19,17 +19,23 @@ const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 // =========================
 // Persistência em disco
 // =========================
-const DATA_DIR = process.env.DATA_DIR || '/var/data';
+const PRIMARY_DATA_DIR = process.env.DATA_DIR || '/var/data';
+const FALLBACK_DATA_DIR = path.join(__dirname, 'data');
 
 function ensureDirSync(dir){
   try{
     if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.R_OK | fs.constants.W_OK);
+    return true;
   }catch(err){
-    console.error('Erro ao criar diretório de dados:', dir, err);
+    console.error('Erro ao preparar diretório de dados:', dir, err);
+    return false;
   }
 }
 
-ensureDirSync(DATA_DIR);
+const DATA_DIR = ensureDirSync(PRIMARY_DATA_DIR)
+  ? PRIMARY_DATA_DIR
+  : (ensureDirSync(FALLBACK_DATA_DIR) ? FALLBACK_DATA_DIR : PRIMARY_DATA_DIR);
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
@@ -929,7 +935,14 @@ app.post('/api/dre/lancamentos', (req, res) => {
     return res.json({ ok:true, lancamento:item, lancamentos: sortLancamentosDesc(items) });
   }catch(e){
     console.error(e);
-    return res.status(500).json({ error:'Erro ao salvar lançamento.' });
+    const msg = String(e?.message || '');
+    if(msg.includes('EACCES') || msg.includes('EROFS') || msg.includes('permission')){
+      return res.status(500).json({ error:`Erro ao salvar lançamento. Pasta de dados sem permissão: ${DATA_DIR}` });
+    }
+    if(msg.includes('ENOSPC')){
+      return res.status(500).json({ error:'Erro ao salvar lançamento. Espaço em disco insuficiente.' });
+    }
+    return res.status(500).json({ error:`Erro ao salvar lançamento. ${msg || 'Falha interna.'}` });
   }
 });
 
