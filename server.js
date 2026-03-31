@@ -16,6 +16,21 @@ app.use(express.json({ limit: '1mb' }));
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
 
+// =========================
+// Persistência em disco
+// =========================
+const DATA_DIR = process.env.DATA_DIR || '/var/data';
+
+function ensureDirSync(dir){
+  try{
+    if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }catch(err){
+    console.error('Erro ao criar diretório de dados:', dir, err);
+  }
+}
+
+ensureDirSync(DATA_DIR);
+
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -85,19 +100,29 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // Arquivos / Auth local
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
-const USERS_FILE = path.join(__dirname, 'users.json');
-const CHAVEAMENTO_STATE_FILE = path.join(__dirname, 'chaveamento-state.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CHAVEAMENTO_STATE_FILE = path.join(DATA_DIR, 'chaveamento-state.json');
+const DRE_LANCAMENTOS_FILE = path.join(DATA_DIR, 'dre-lancamentos.json');
 
-function readChaveamentoState(){
+function readJsonFile(filePath, fallback){
   try{
-    if(!fs.existsSync(CHAVEAMENTO_STATE_FILE)) return null;
-    const raw = fs.readFileSync(CHAVEAMENTO_STATE_FILE, 'utf8');
-    if(!raw) return null;
+    if(!fs.existsSync(filePath)) return fallback;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if(!raw) return fallback;
     return JSON.parse(raw);
   }catch(err){
-    console.error('Erro ao ler chaveamento-state.json:', err);
-    return null;
+    console.error(`Erro ao ler ${path.basename(filePath)}:`, err);
+    return fallback;
   }
+}
+
+function writeJsonFile(filePath, data){
+  ensureDirSync(path.dirname(filePath));
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function readChaveamentoState(){
+  return readJsonFile(CHAVEAMENTO_STATE_FILE, null);
 }
 
 function writeChaveamentoState(data){
@@ -105,8 +130,17 @@ function writeChaveamentoState(data){
     savedAt: new Date().toISOString(),
     data
   };
-  fs.writeFileSync(CHAVEAMENTO_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  writeJsonFile(CHAVEAMENTO_STATE_FILE, payload);
   return payload;
+}
+
+function readDreLancamentos(){
+  const data = readJsonFile(DRE_LANCAMENTOS_FILE, []);
+  return Array.isArray(data) ? data : [];
+}
+
+function writeDreLancamentos(items){
+  writeJsonFile(DRE_LANCAMENTOS_FILE, Array.isArray(items) ? items : []);
 }
 
 // =========================
@@ -159,18 +193,12 @@ function adminAuth(req, res, next){
 }
 
 function readUsers(){
-  try{
-    if(!fs.existsSync(USERS_FILE)) return [];
-    const raw = fs.readFileSync(USERS_FILE, 'utf8');
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  }catch{
-    return [];
-  }
+  const arr = readJsonFile(USERS_FILE, []);
+  return Array.isArray(arr) ? arr : [];
 }
 
 function writeUsers(users){
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+  writeJsonFile(USERS_FILE, users);
 }
 
 function hashPassword(password){
@@ -414,6 +442,34 @@ function computeAvailability(events, duration, date){
   return out;
 }
 
+function sortLancamentosDesc(items){
+  return [...items].sort((a, b) => {
+    const ad = String(a?.data || '');
+    const bd = String(b?.data || '');
+    if(ad !== bd) return bd.localeCompare(ad);
+    return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
+  });
+}
+
+function normalizeLancamento(input){
+  const raw = input && typeof input === 'object' ? input : {};
+  return {
+    id: raw.id || crypto.randomUUID(),
+    data: String(raw.data || '').trim(),
+    tipo: String(raw.tipo || '').trim(),
+    categoria: String(raw.categoria || '').trim(),
+    subcategoria: String(raw.subcategoria || '').trim(),
+    descricao: String(raw.descricao || '').trim(),
+    valor: Number(raw.valor || 0),
+    unidade: String(raw.unidade || '').trim(),
+    painel: String(raw.painel || '').trim(),
+    competencia: String(raw.competencia || '').trim(),
+    observacoes: String(raw.observacoes || '').trim(),
+    createdAt: raw.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
 // =========================
 // Health
 // =========================
@@ -422,7 +478,7 @@ app.get('/health', async (req, res) => {
   if(missing.length){
     return res.status(500).json({ ok:false, error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
   }
-  return res.json({ ok:true });
+  return res.json({ ok:true, dataDir: DATA_DIR });
 });
 
 // =========================
@@ -812,6 +868,84 @@ app.post('/api/chaveamento/state', (req, res) => {
 });
 
 // =========================
+// DRE / Lançamentos do admin
+// =========================
+app.get('/api/dre/lancamentos', (req, res) => {
+  try{
+    const items = sortLancamentosDesc(readDreLancamentos());
+    return res.json({ ok: true, lancamentos: items });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao carregar lançamentos.' });
+  }
+});
+
+app.post('/api/dre/lancamentos', (req, res) => {
+  try{
+    const payload = req.body;
+
+    if(Array.isArray(payload)){
+      const normalizados = payload.map(normalizeLancamento);
+      writeDreLancamentos(normalizados);
+      return res.json({ ok:true, lancamentos: sortLancamentosDesc(normalizados) });
+    }
+
+    const item = normalizeLancamento(payload);
+    if(!item.data){
+      return res.status(400).json({ error:'Campo data é obrigatório.' });
+    }
+    if(!item.tipo){
+      return res.status(400).json({ error:'Campo tipo é obrigatório.' });
+    }
+    if(!Number.isFinite(item.valor)){
+      return res.status(400).json({ error:'Campo valor inválido.' });
+    }
+
+    const items = readDreLancamentos();
+    const idx = items.findIndex(x => x.id === item.id);
+
+    if(idx >= 0){
+      item.createdAt = items[idx].createdAt || item.createdAt;
+      items[idx] = item;
+    }else{
+      items.push(item);
+    }
+
+    writeDreLancamentos(items);
+    return res.json({ ok:true, lancamento:item, lancamentos: sortLancamentosDesc(items) });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao salvar lançamento.' });
+  }
+});
+
+app.delete('/api/dre/lancamentos/:id', (req, res) => {
+  try{
+    const id = String(req.params.id || '').trim();
+    if(!id) return res.status(400).json({ error:'ID inválido.' });
+
+    const items = readDreLancamentos();
+    const filtered = items.filter(x => String(x.id) !== id);
+    writeDreLancamentos(filtered);
+
+    return res.json({ ok:true, lancamentos: sortLancamentosDesc(filtered) });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao excluir lançamento.' });
+  }
+});
+
+app.delete('/api/dre/lancamentos', (req, res) => {
+  try{
+    writeDreLancamentos([]);
+    return res.json({ ok:true, lancamentos: [] });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao limpar lançamentos.' });
+  }
+});
+
+// =========================
 // Admin login / sessão
 // =========================
 app.post('/api/admin/login', (req, res) => {
@@ -953,7 +1087,9 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
       stats: {
         totalUsers: users.length,
         totalReservationsFuture: reservationsCount,
-        adminEmail: ADMIN_EMAIL
+        totalLancamentosDRE: readDreLancamentos().length,
+        adminEmail: ADMIN_EMAIL,
+        dataDir: DATA_DIR
       }
     });
   }catch(e){
@@ -962,127 +1098,7 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
   }
 });
 
-
-
-// =========================
-// DRE / lançamentos admin
-// =========================
-const DRE_FILE = path.join(__dirname, 'dre-lancamentos.json');
-
-function readDreLancamentos(){
-  try{
-    if(!fs.existsSync(DRE_FILE)) return [];
-    const raw = fs.readFileSync(DRE_FILE, 'utf8');
-    if(!raw) return [];
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  }catch(err){
-    console.error('Erro ao ler dre-lancamentos.json:', err);
-    return [];
-  }
-}
-
-function writeDreLancamentos(items){
-  fs.writeFileSync(DRE_FILE, JSON.stringify(items, null, 2), 'utf8');
-  return items;
-}
-
-app.get('/api/dre/lancamentos', (req, res) => {
-  try{
-    const lancamentos = readDreLancamentos()
-      .sort((a, b) => {
-        const da = String(a?.data || '');
-        const db = String(b?.data || '');
-        if(db !== da) return db.localeCompare(da);
-        return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
-      });
-
-    return res.json({ ok:true, lancamentos });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao carregar lançamentos do DRE.' });
-  }
-});
-
-app.post('/api/dre/lancamentos', (req, res) => {
-  try{
-    const body = req.body || {};
-    const categoria = String(body.categoria || '').trim();
-    const grupo = String(body.grupo || '').trim();
-    const data = String(body.data || '').trim();
-    const competencia = String(body.competencia || '').trim();
-    const destino = String(body.destino || 'gerencial').trim();
-    const valor = Number(body.valor || 0);
-
-    if(!categoria || !grupo || !data || !competencia || !Number.isFinite(valor) || valor <= 0){
-      return res.status(400).json({ error:'Dados inválidos para salvar lançamento.' });
-    }
-
-    const lista = readDreLancamentos();
-    const item = {
-      id: String(body.id || crypto.randomUUID()),
-      descricao: String(body.descricao || categoria).trim(),
-      valor,
-      data,
-      grupo,
-      secao: String(body.secao || '').trim(),
-      categoria,
-      competencia,
-      competenciaManual: Boolean(body.competenciaManual),
-      pagamento: String(body.pagamento || '').trim(),
-      obs: String(body.obs || '').trim(),
-      anexos: Array.isArray(body.anexos) ? body.anexos : [],
-      destino: destino === 'analitica' ? 'analitica' : 'gerencial',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const idx = lista.findIndex(x => String(x.id) === item.id);
-    if(idx >= 0){
-      item.createdAt = lista[idx].createdAt || item.createdAt;
-      lista[idx] = { ...lista[idx], ...item, updatedAt: new Date().toISOString() };
-    }else{
-      lista.push(item);
-    }
-
-    writeDreLancamentos(lista);
-    return res.json({ ok:true, lancamento:item });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao salvar lançamento do DRE.' });
-  }
-});
-
-app.delete('/api/dre/lancamentos/:id', (req, res) => {
-  try{
-    const id = String(req.params.id || '').trim();
-    if(!id) return res.status(400).json({ error:'ID inválido.' });
-
-    const lista = readDreLancamentos();
-    const nova = lista.filter(item => String(item.id) !== id);
-
-    if(nova.length === lista.length){
-      return res.status(404).json({ error:'Lançamento não encontrado.' });
-    }
-
-    writeDreLancamentos(nova);
-    return res.json({ ok:true, removedId:id });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao remover lançamento do DRE.' });
-  }
-});
-
-app.delete('/api/dre/lancamentos', (req, res) => {
-  try{
-    writeDreLancamentos([]);
-    return res.json({ ok:true });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao limpar lançamentos do DRE.' });
-  }
-});
-
 app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
+  console.log(`Persistindo arquivos em: ${DATA_DIR}`);
 });
