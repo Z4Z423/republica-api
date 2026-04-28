@@ -5,12 +5,37 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '12mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
+
+// =========================
+// Persistência em disco
+// =========================
+const PRIMARY_DATA_DIR = process.env.DATA_DIR || '/var/data';
+const FALLBACK_DATA_DIR = path.join(__dirname, 'data');
+
+function ensureDirSync(dir){
+  try{
+    if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.R_OK | fs.constants.W_OK);
+    return true;
+  }catch(err){
+    console.error('Erro ao preparar diretório de dados:', dir, err);
+    return false;
+  }
+}
+
+const DATA_DIR = ensureDirSync(PRIMARY_DATA_DIR)
+  ? PRIMARY_DATA_DIR
+  : (ensureDirSync(FALLBACK_DATA_DIR) ? FALLBACK_DATA_DIR : PRIMARY_DATA_DIR);
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
@@ -81,7 +106,48 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // Arquivos / Auth local
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
-const USERS_FILE = path.join(process.cwd(), 'users.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CHAVEAMENTO_STATE_FILE = path.join(DATA_DIR, 'chaveamento-state.json');
+const DRE_LANCAMENTOS_FILE = path.join(DATA_DIR, 'dre-lancamentos.json');
+
+function readJsonFile(filePath, fallback){
+  try{
+    if(!fs.existsSync(filePath)) return fallback;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if(!raw) return fallback;
+    return JSON.parse(raw);
+  }catch(err){
+    console.error(`Erro ao ler ${path.basename(filePath)}:`, err);
+    return fallback;
+  }
+}
+
+function writeJsonFile(filePath, data){
+  ensureDirSync(path.dirname(filePath));
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function readChaveamentoState(){
+  return readJsonFile(CHAVEAMENTO_STATE_FILE, null);
+}
+
+function writeChaveamentoState(data){
+  const payload = {
+    savedAt: new Date().toISOString(),
+    data
+  };
+  writeJsonFile(CHAVEAMENTO_STATE_FILE, payload);
+  return payload;
+}
+
+function readDreLancamentos(){
+  const data = readJsonFile(DRE_LANCAMENTOS_FILE, []);
+  return Array.isArray(data) ? data : [];
+}
+
+function writeDreLancamentos(items){
+  writeJsonFile(DRE_LANCAMENTOS_FILE, Array.isArray(items) ? items : []);
+}
 
 // =========================
 // Admin (somente e-mail + senha)
@@ -133,18 +199,12 @@ function adminAuth(req, res, next){
 }
 
 function readUsers(){
-  try{
-    if(!fs.existsSync(USERS_FILE)) return [];
-    const raw = fs.readFileSync(USERS_FILE, 'utf8');
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  }catch{
-    return [];
-  }
+  const arr = readJsonFile(USERS_FILE, []);
+  return Array.isArray(arr) ? arr : [];
 }
 
 function writeUsers(users){
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+  writeJsonFile(USERS_FILE, users);
 }
 
 function hashPassword(password){
@@ -388,6 +448,48 @@ function computeAvailability(events, duration, date){
   return out;
 }
 
+function sortLancamentosDesc(items){
+  return [...items].sort((a, b) => {
+    const ad = String(a?.data || '');
+    const bd = String(b?.data || '');
+    if(ad !== bd) return bd.localeCompare(ad);
+    return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
+  });
+}
+
+function normalizeLancamento(input){
+  const raw = input && typeof input === 'object' ? input : {};
+  const tipo = String(raw.tipo || raw.grupo || '').trim();
+  const secao = String(raw.secao || raw.subcategoria || '').trim();
+  const observacoes = String(raw.observacoes || raw.obs || '').trim();
+  const pagamento = String(raw.pagamento || '').trim();
+  const destino = String(raw.destino || 'gerencial').trim() || 'gerencial';
+  const anexos = Array.isArray(raw.anexos) ? raw.anexos : [];
+
+  return {
+    id: raw.id || crypto.randomUUID(),
+    data: String(raw.data || '').trim(),
+    tipo,
+    grupo: tipo,
+    secao,
+    categoria: String(raw.categoria || '').trim(),
+    subcategoria: secao,
+    descricao: String(raw.descricao || '').trim(),
+    valor: Number(raw.valor || 0),
+    unidade: String(raw.unidade || '').trim(),
+    painel: String(raw.painel || '').trim(),
+    competencia: String(raw.competencia || '').trim(),
+    observacoes,
+    obs: observacoes,
+    pagamento,
+    anexos,
+    destino,
+    competenciaManual: Boolean(raw.competenciaManual),
+    createdAt: raw.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
 // =========================
 // Health
 // =========================
@@ -396,7 +498,7 @@ app.get('/health', async (req, res) => {
   if(missing.length){
     return res.status(500).json({ ok:false, error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
   }
-  return res.json({ ok:true });
+  return res.json({ ok:true, dataDir: DATA_DIR });
 });
 
 // =========================
@@ -751,6 +853,126 @@ app.get('/api/my_reservations', async (req,res)=>{
 });
 
 // =========================
+// Chaveamento sincronizado
+// =========================
+app.get('/api/chaveamento/state', (req, res) => {
+  try{
+    const payload = readChaveamentoState();
+    return res.json({
+      ok: true,
+      savedAt: payload?.savedAt || null,
+      data: payload?.data || null
+    });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao carregar estado do chaveamento.' });
+  }
+});
+
+app.post('/api/chaveamento/state', (req, res) => {
+  try{
+    const data = req.body;
+    if(!data || typeof data !== 'object' || Array.isArray(data)){
+      return res.status(400).json({ error:'Payload inválido.' });
+    }
+
+    const payload = writeChaveamentoState(data);
+    return res.json({
+      ok: true,
+      savedAt: payload.savedAt
+    });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao salvar estado do chaveamento.' });
+  }
+});
+
+// =========================
+// DRE / Lançamentos do admin
+// =========================
+app.get('/api/dre/lancamentos', (req, res) => {
+  try{
+    const items = sortLancamentosDesc(readDreLancamentos());
+    return res.json({ ok: true, lancamentos: items });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao carregar lançamentos.' });
+  }
+});
+
+app.post('/api/dre/lancamentos', (req, res) => {
+  try{
+    const payload = req.body;
+
+    if(Array.isArray(payload)){
+      const normalizados = payload.map(normalizeLancamento);
+      writeDreLancamentos(normalizados);
+      return res.json({ ok:true, lancamentos: sortLancamentosDesc(normalizados) });
+    }
+
+    const item = normalizeLancamento(payload);
+    if(!item.data){
+      return res.status(400).json({ error:'Campo data é obrigatório.' });
+    }
+    if(!item.tipo && !item.grupo){
+      return res.status(400).json({ error:'Campo grupo/tipo é obrigatório.' });
+    }
+    if(!Number.isFinite(item.valor)){
+      return res.status(400).json({ error:'Campo valor inválido.' });
+    }
+
+    const items = readDreLancamentos();
+    const idx = items.findIndex(x => x.id === item.id);
+
+    if(idx >= 0){
+      item.createdAt = items[idx].createdAt || item.createdAt;
+      items[idx] = item;
+    }else{
+      items.push(item);
+    }
+
+    writeDreLancamentos(items);
+    return res.json({ ok:true, lancamento:item, lancamentos: sortLancamentosDesc(items) });
+  }catch(e){
+    console.error(e);
+    const msg = String(e?.message || '');
+    if(msg.includes('EACCES') || msg.includes('EROFS') || msg.includes('permission')){
+      return res.status(500).json({ error:`Erro ao salvar lançamento. Pasta de dados sem permissão: ${DATA_DIR}` });
+    }
+    if(msg.includes('ENOSPC')){
+      return res.status(500).json({ error:'Erro ao salvar lançamento. Espaço em disco insuficiente.' });
+    }
+    return res.status(500).json({ error:`Erro ao salvar lançamento. ${msg || 'Falha interna.'}` });
+  }
+});
+
+app.delete('/api/dre/lancamentos/:id', (req, res) => {
+  try{
+    const id = String(req.params.id || '').trim();
+    if(!id) return res.status(400).json({ error:'ID inválido.' });
+
+    const items = readDreLancamentos();
+    const filtered = items.filter(x => String(x.id) !== id);
+    writeDreLancamentos(filtered);
+
+    return res.json({ ok:true, lancamentos: sortLancamentosDesc(filtered) });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao excluir lançamento.' });
+  }
+});
+
+app.delete('/api/dre/lancamentos', (req, res) => {
+  try{
+    writeDreLancamentos([]);
+    return res.json({ ok:true, lancamentos: [] });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Erro ao limpar lançamentos.' });
+  }
+});
+
+// =========================
 // Admin login / sessão
 // =========================
 app.post('/api/admin/login', (req, res) => {
@@ -892,7 +1114,9 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
       stats: {
         totalUsers: users.length,
         totalReservationsFuture: reservationsCount,
-        adminEmail: ADMIN_EMAIL
+        totalLancamentosDRE: readDreLancamentos().length,
+        adminEmail: ADMIN_EMAIL,
+        dataDir: DATA_DIR
       }
     });
   }catch(e){
@@ -903,4 +1127,5 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
+  console.log(`Persistindo arquivos em: ${DATA_DIR}`);
 });
