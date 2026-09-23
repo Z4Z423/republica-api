@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chaveamento - Visualização</title>
+  <style>
+    :root{
+      --bg:#06101d;
+      --bg2:#0d1930;
+      --card:#122042;
+      --card2:#17284d;
+      --text:#eef4ff;
+      --muted:#98add8;
+      --accent:#4aa7ff;
+      --accent2:#7b5cff;
+      --ok:#2fd39a;
+      --line:#28447e;
+      --shadow:0 10px 25px rgba(0,0,0,.25);
+    }
+
+    *{box-sizing:border-box}
+
+    html,body{
+      margin:0;
+      padding:0;
+      width:100%;
+      min-height:100%;
+      font-family:Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(74,167,255,.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(123,92,255,.15), transparent 28%),
+        linear-gradient(180deg,#05101b,#081423 100%);
+      color:var(--text);
+      overflow-x:hidden;
+      overflow-y:auto;
+    }
+
+    .app{
+      width:100%;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      padding:10px;
+    }
+
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      padding:12px 14px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(135deg, rgba(74,167,255,.13), rgba(123,92,255,.11));
+      box-shadow:var(--shadow);
+      position:sticky;
+      top:0;
+      z-index:50;
+    }
+
+    .title h1{ margin:0; font-size:24px; line-height:1; }
+    .title p{ margin:5px 0 0; color:var(--muted); font-size:12px; }
+
+    .actions{ display:flex; gap:8px; flex-wrap:wrap; }
+
+    button{
+      border:none;
+      outline:none;
+      cursor:pointer;
+      border-radius:12px;
+      padding:10px 14px;
+      font-size:13px;
+      font-weight:700;
+      transition:.15s ease;
+    }
+    button:hover{transform:translateY(-1px)}
+    button:active{transform:translateY(1px)}
+
+    .btn-secondary{ background:#18284a; color:#edf3ff; border:1px solid rgba(255,255,255,.08); }
+
+    .mode-bar,.info,.mini-actions{ display:flex; justify-content:center; gap:8px; flex-wrap:wrap; }
+
+    .zoom-bar{ display:flex; justify-content:center; gap:8px; flex-wrap:wrap; }
+    .zoom-btn{ min-width:46px; padding:10px 12px; font-size:18px; line-height:1; }
+    .mode-btn.active{ background:linear-gradient(135deg, rgba(74,167,255,.24), rgba(123,92,255,.24)); border:1px solid rgba(255,255,255,.15); }
+
+    .badge{
+      padding:8px 12px;
+      border-radius:999px;
+      background:#112143;
+      border:1px solid rgba(255,255,255,.08);
+      font-size:12px;
+      font-weight:700;
+      color:#e9f1ff;
+    }
+
+    .viewport{
+      position:relative;
+      width:100%;
+      min-height:1900px;
+      border-radius:20px;
+      border:1px solid rgba(255,255,255,.06);
+      background:linear-gradient(180deg, rgba(4,12,22,.35), rgba(6,15,27,.65));
+      overflow-x:auto;
+      overflow-y:visible;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior-x:contain;
+      overscroll-behavior-y:auto;
+      touch-action:pan-x pan-y;
+      padding:20px 12px 60px;
+      cursor:auto;
+    }
+    .viewport.dragging{ cursor:auto; user-select:none; }
+    @media (hover:none) and (pointer:coarse){
+      .viewport{ cursor:auto; overscroll-behavior-x:contain; overscroll-behavior-y:auto; }
+      .viewport.dragging{ cursor:auto; }
+      .zoom-btn{ min-width:54px; min-height:54px; font-size:22px; }
+    }
+    .stage-wrap{ width:max-content; min-width:100%; display:flex; justify-content:center; align-items:flex-start; transform-origin:top center; transition:transform .18s ease; will-change:transform; }
+
+    @media (max-width: 900px){
+      .viewport{
+        min-height:auto;
+        padding:16px 10px 48px;
+      }
+      .stage-wrap{
+        min-width:max-content;
+        justify-content:flex-start;
+      }
+    }
+    .stage{ position:relative; width:min(100%, 1700px); min-height:1800px; transform-origin:top left; transition:transform .18s ease; will-change:transform; }
+
+    .round-label{
+      position:absolute; text-align:center; font-size:11px; font-weight:700; color:#dce8ff; padding:7px 4px;
+      border-radius:10px; background:#16274d; border:1px solid rgba(255,255,255,.08); z-index:5;
+    }
+
+    .match{
+      position:absolute; border-radius:12px; overflow:hidden;
+      background:linear-gradient(180deg,var(--card),var(--card2)); border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow); z-index:3;
+    }
+
+    .player{
+      width:100%; min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:8px;
+      padding:8px 10px; border:none; border-bottom:1px solid rgba(255,255,255,.08); background:transparent;
+      color:#eef4ff; font-size:10px; font-weight:700; text-align:left;
+    }
+    .player:last-child{border-bottom:none}
+    .player span{ min-width:0; flex:1; white-space:normal; overflow:visible; text-overflow:clip; line-height:1.25; word-break:break-word; }
+    .player small{ flex-shrink:0; font-size:9px; color:#9fb2db; font-weight:700; }
+    .player.disabled{ color:#88a0ce; }
+    .player.pending{ color:#88a0ce; }
+    .player.bye{ color:#ffd37d; }
+    .player.winner{ background:linear-gradient(135deg, rgba(47,211,154,.18), rgba(47,211,154,.08)); color:#edfff8; }
+
+    .line{ position:absolute; background:var(--line); opacity:.9; z-index:1; }
+
+    .final-title{
+      position:absolute; text-align:center; padding:10px; border-radius:14px 14px 0 0;
+      background:linear-gradient(135deg, rgba(255,209,94,.20), rgba(74,167,255,.14));
+      border:1px solid rgba(255,255,255,.08); border-bottom:none; font-weight:800; z-index:6;
+    }
+
+    .champion-box{
+      position:absolute; padding:14px 12px; border-radius:16px;
+      background:linear-gradient(135deg, rgba(255,209,94,.18), rgba(123,92,255,.14));
+      border:1px solid rgba(255,255,255,.08); text-align:center; z-index:6; box-shadow:var(--shadow);
+    }
+    .champion-box .label{ display:block; font-size:10px; text-transform:uppercase; letter-spacing:.18em; color:#fff1bf; font-weight:800; margin-bottom:6px; }
+    .champion-box .name{ font-size:15px; font-weight:800; line-height:1.2; word-break:break-word; }
+
+    .empty-state{
+      width:min(900px, 96%);
+      margin:50px auto;
+      padding:28px;
+      text-align:center;
+      border-radius:22px;
+      background:linear-gradient(180deg,#0b1730,#091323);
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow);
+    }
+    .empty-state h2{ margin-top:0; }
+    .empty-state p{ color:var(--muted); line-height:1.5; }
+
+    @media (max-width:1100px){
+      .stage{ width:100%; }
+      .topbar{ flex-direction:column; align-items:flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title">
+        <h1>Chaveamento - Visualização</h1>
+        <p>Modo somente leitura. Atualiza automaticamente com o que for alterado no gerenciador.</p>
+      </div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="refreshBtn">Atualizar agora</button>
+      </div>
+    </div>
+
+    <div class="mode-bar">
+      <button class="btn-secondary mode-btn active" data-view="male">Masculino</button>
+      <button class="btn-secondary mode-btn" data-view="female">Feminino</button>
+    </div>
+
+    <div class="info">
+      <div class="badge" id="maleInfo">Masculino: aguardando</div>
+      <div class="badge" id="femaleInfo">Feminino: aguardando</div>
+    </div>
+
+    <div class="mini-actions">
+      <div class="badge" id="currentViewBadge">Visualizando: Masculino</div>
+      <div class="badge" id="slotInfoBadge">Vagas: --</div>
+      <div class="badge" id="syncBadge">Sincronização: carregando...</div>
+    </div>
+
+    <div class="zoom-bar">
+      <div class="badge">No celular: arraste para os lados com o dedo</div>
+      <button class="btn-secondary zoom-btn" id="zoomOutBtn" title="Diminuir zoom">−</button>
+      <div class="badge" id="zoomBadge">Zoom: 100%</div>
+      <button class="btn-secondary zoom-btn" id="zoomInBtn" title="Aumentar zoom">+</button>
+      <button class="btn-secondary" id="zoomResetBtn">100%</button>
+    </div>
+
+    <div class="viewport">
+      <div class="stage-wrap">
+        <div class="stage" id="stage"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = (window.CHAVEAMENTO_API_BASE || 'https://republica-api-1.onrender.com').replace(/\/$/, '');
+    const POLL_MS = 2000;
+
+    const stage = document.getElementById('stage');
+    const stageWrap = document.querySelector('.stage-wrap');
+    const viewport = document.querySelector('.viewport');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomResetBtn = document.getElementById('zoomResetBtn');
+    const zoomBadge = document.getElementById('zoomBadge');
+    let zoomLevel = 1;
+    const modeBtns = document.querySelectorAll('.mode-btn');
+    const maleInfo = document.getElementById('maleInfo');
+    const femaleInfo = document.getElementById('femaleInfo');
+    const currentViewBadge = document.getElementById('currentViewBadge');
+    const slotInfoBadge = document.getElementById('slotInfoBadge');
+    const syncBadge = document.getElementById('syncBadge');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    let currentView = 'male';
+    let maleTournament = null;
+    let femaleTournament = null;
+    let lastSnapshot = '';
+
+    function setSyncStatus(msg){
+      syncBadge.textContent = `Sincronização: ${msg}`;
+    }
+
+    function activeNamesFromSlots(slots){
+      return (slots || []).filter(v => v && v !== 'BYE');
+    }
+
+    function roundNames(half){
+      if(half === 32) return ['32 avos', '16 avos', 'Oitavas', 'Quartas', 'Semifinal'];
+      if(half === 8) return ['Oitavas', 'Quartas', 'Semifinal'];
+      return ['Rodada 1','Rodada 2','Rodada 3'];
+    }
+
+    function getTournament(){
+      return currentView === 'male' ? maleTournament : femaleTournament;
+    }
+
+    function updateInfoBadges(){
+      currentViewBadge.textContent = `Visualizando: ${currentView === 'male' ? 'Masculino' : 'Feminino'}`;
+      const t = getTournament();
+      if(!t){
+        slotInfoBadge.textContent = 'Vagas: --';
+        return;
+      }
+      const ativos = activeNamesFromSlots(t.slots).length;
+      const livres = (t.slots || []).filter(v => !v || v === 'BYE').length;
+      slotInfoBadge.textContent = `Ativos: ${ativos} • Vagas vazias: ${livres}`;
+    }
+
+    function createPlayerRow(name, winner, label){
+      const row = document.createElement('div');
+      row.className = 'player';
+
+      if(!name){
+        row.classList.add('disabled','pending');
+        row.innerHTML = `<span>---</span><small>Aguardando</small>`;
+        return row;
+      }
+
+      if(name === 'BYE'){
+        row.classList.add('bye','disabled');
+        row.innerHTML = `<span>BYE</span><small>Automático</small>`;
+        return row;
+      }
+
+      if(winner === name) row.classList.add('winner');
+      row.innerHTML = `<span>${escapeHtml(name)}</span><small>${label}</small>`;
+      return row;
+    }
+
+    function addEmptyState(){
+      stage.innerHTML = `
+        <div class="empty-state">
+          <h2>Aguardando chaveamento</h2>
+          <p>Abra o gerenciador, gere ou altere o chaveamento, e esta tela vai atualizar automaticamente.</p>
+        </div>
+      `;
+      stage.style.height = '1600px';
+    }
+
+    function applyZoom(){
+      if(!stageWrap || !viewport) return;
+      const isMobileLayout = window.innerWidth <= 900;
+      stageWrap.style.justifyContent = isMobileLayout ? 'flex-start' : 'center';
+      stage.style.transform = `scale(${zoomLevel})`;
+      const width = stage.offsetWidth || 0;
+      const height = stage.offsetHeight || 0;
+      const scaledWidth = width * zoomLevel;
+      const scaledHeight = height * zoomLevel;
+      stageWrap.style.width = (isMobileLayout ? Math.max(scaledWidth, viewport.clientWidth - 24) : Math.max(viewport.clientWidth - 24, scaledWidth)) + 'px';
+      stageWrap.style.height = Math.max(scaledHeight, 600) + 'px';
+      if(zoomBadge) zoomBadge.textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+    }
+
+    function setZoom(nextZoom){
+      zoomLevel = Math.max(0.55, Math.min(1.8, Number(nextZoom) || 1));
+      applyZoom();
+    }
+
+    function renderCurrent(){
+      const t = getTournament();
+      stage.innerHTML = '';
+      updateInfoBadges();
+
+      if(!t){
+        addEmptyState();
+        return;
+      }
+
+      const stageWidth = stage.clientWidth || 1600;
+      const sideRounds = t.leftRounds.length;
+      const names = roundNames(t.half);
+
+      const outerPad = 10;
+      const centerWidth = t.half === 32 ? 170 : 220;
+      const colGap = t.half === 32 ? 18 : 28;
+
+      const usable = stageWidth - outerPad * 2 - centerWidth;
+      const oneSide = usable / 2;
+      const matchW = Math.floor((oneSide - (sideRounds - 1) * colGap) / sideRounds);
+      const clampedMatchW = Math.max(110, Math.min(150, matchW));
+      const realSideWidth = sideRounds * clampedMatchW + (sideRounds - 1) * colGap;
+      const totalWidth = realSideWidth * 2 + centerWidth;
+
+      const isMobileLayout = window.innerWidth <= 900;
+      stage.style.width = (isMobileLayout ? totalWidth : Math.min(stageWidth, totalWidth)) + 'px';
+
+      const leftStartX = Math.max(0, ((isMobileLayout ? totalWidth : stage.clientWidth) - totalWidth) / 2);
+      const centerX = leftStartX + realSideWidth;
+      const rightStartX = centerX + centerWidth;
+
+      const matchH = 104;
+      const topPad = 55;
+      const rowUnit = t.half === 32 ? 124 : 156;
+      const halfMatches = t.leftRounds[0].length;
+      const totalHeight = (halfMatches * 2 * rowUnit) + 220;
+      stage.style.height = totalHeight + 'px';
+      requestAnimationFrame(applyZoom);
+
+      function addLine(x,y,w,h){
+        const line = document.createElement('div');
+        line.className = 'line';
+        line.style.left = x + 'px';
+        line.style.top = y + 'px';
+        line.style.width = w + 'px';
+        line.style.height = h + 'px';
+        stage.appendChild(line);
+      }
+
+      function matchTop(roundIndex, matchIndex){
+        return topPad + ((Math.pow(2, roundIndex) - 1) * rowUnit) + (matchIndex * Math.pow(2, roundIndex + 1) * rowUnit);
+      }
+
+      function renderSide(rounds, side){
+        for(let r=0;r<rounds.length;r++){
+          const x = side === 'left'
+            ? leftStartX + r * (clampedMatchW + colGap)
+            : rightStartX + (sideRounds - 1 - r) * (clampedMatchW + colGap);
+
+          const label = document.createElement('div');
+          label.className = 'round-label';
+          label.textContent = names[r] || `Rodada ${r+1}`;
+          label.style.left = x + 'px';
+          label.style.top = '8px';
+          label.style.width = clampedMatchW + 'px';
+          stage.appendChild(label);
+
+          rounds[r].forEach((match, m) => {
+            const top = matchTop(r, m);
+
+            const box = document.createElement('div');
+            box.className = 'match';
+            box.style.left = x + 'px';
+            box.style.top = top + 'px';
+            box.style.width = clampedMatchW + 'px';
+
+            box.appendChild(createPlayerRow(
+              match.p1,
+              match.winner,
+              match.winner === match.p1 ? 'Venceu' : 'Disputa'
+            ));
+
+            box.appendChild(createPlayerRow(
+              match.p2,
+              match.winner,
+              match.winner === match.p2 ? 'Venceu' : 'Disputa'
+            ));
+
+            stage.appendChild(box);
+
+            const y1 = top + matchH / 2;
+
+            if(r < rounds.length - 1){
+              const nextTop = matchTop(r + 1, Math.floor(m / 2));
+              const y2 = nextTop + matchH / 2;
+
+              if(side === 'left'){
+                const x1 = x + clampedMatchW;
+                const midX = x + clampedMatchW + (colGap / 2);
+                const x2 = x + clampedMatchW + colGap;
+
+                addLine(x1, y1, midX - x1, 2);
+                addLine(midX, Math.min(y1,y2), 2, Math.abs(y2-y1) + 2);
+                addLine(midX, y2, x2 - midX, 2);
+              } else {
+                const currentLeft = x;
+                const nextX = rightStartX + (sideRounds - 1 - (r + 1)) * (clampedMatchW + colGap);
+                const nextRight = nextX + clampedMatchW;
+                const midX = nextRight + (colGap / 2);
+
+                addLine(currentLeft - (midX - currentLeft), y1, midX - currentLeft, 2);
+                addLine(midX, Math.min(y1,y2), 2, Math.abs(y2-y1) + 2);
+                addLine(nextRight, y2, midX - nextRight, 2);
+              }
+            } else {
+              const finalY = (totalHeight / 2) - 14;
+
+              if(side === 'left'){
+                const startX = x + clampedMatchW;
+                const midX = centerX + 18;
+                addLine(startX, y1, midX - startX, 2);
+                addLine(midX, Math.min(y1, finalY), 2, Math.abs(finalY - y1) + 2);
+                addLine(midX, finalY, 18, 2);
+              } else {
+                const endX = x;
+                const midX = centerX + centerWidth - 18;
+                addLine(midX - 18, finalY, 18, 2);
+                addLine(midX, Math.min(y1, finalY), 2, Math.abs(finalY - y1) + 2);
+                addLine(endX, y1, midX - endX, 2);
+              }
+            }
+          });
+        }
+      }
+
+      renderSide(t.leftRounds, 'left');
+      renderSide(t.rightRounds, 'right');
+
+      const finalW = Math.min(190, centerWidth - 10);
+
+      const finalTitle = document.createElement('div');
+      finalTitle.className = 'final-title';
+      finalTitle.textContent = 'FINAL';
+      finalTitle.style.width = finalW + 'px';
+      finalTitle.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      finalTitle.style.top = ((totalHeight / 2) - 76) + 'px';
+      stage.appendChild(finalTitle);
+
+      const finalMatch = document.createElement('div');
+      finalMatch.className = 'match';
+      finalMatch.style.width = finalW + 'px';
+      finalMatch.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      finalMatch.style.top = ((totalHeight / 2) - (matchH / 2)) + 'px';
+
+      finalMatch.appendChild(createPlayerRow(
+        t.finalMatch.p1,
+        t.finalMatch.winner,
+        t.finalMatch.winner === t.finalMatch.p1 ? 'Campeão' : 'Final'
+      ));
+
+      finalMatch.appendChild(createPlayerRow(
+        t.finalMatch.p2,
+        t.finalMatch.winner,
+        t.finalMatch.winner === t.finalMatch.p2 ? 'Campeão' : 'Final'
+      ));
+
+      stage.appendChild(finalMatch);
+
+      const champion = document.createElement('div');
+      champion.className = 'champion-box';
+      champion.style.width = finalW + 'px';
+      champion.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      champion.style.top = ((totalHeight / 2) + 72) + 'px';
+      champion.innerHTML = `
+        <span class="label">Campeão</span>
+        <div class="name">${escapeHtml(t.finalMatch.winner || 'Aguardando final')}</div>
+      `;
+      stage.appendChild(champion);
+    }
+
+    function escapeHtml(str){
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    async function loadRemoteState(forceRender = false){
+      try{
+        setSyncStatus('carregando...');
+        const resp = await fetch(`${API_BASE}/api/chaveamento/state`, { cache: 'no-store' });
+        if(!resp.ok) throw new Error('Falha ao carregar');
+
+        const out = await resp.json();
+        const data = out?.data;
+        if(!data){
+          maleTournament = null;
+          femaleTournament = null;
+          maleInfo.textContent = 'Masculino: aguardando';
+          femaleInfo.textContent = 'Feminino: aguardando';
+          renderCurrent();
+          setSyncStatus('sem dados salvos');
+          return;
+        }
+
+        const snapshot = JSON.stringify(data);
+        const changed = snapshot !== lastSnapshot;
+        lastSnapshot = snapshot;
+
+        maleTournament = data.maleTournament || null;
+        femaleTournament = data.enableFemale ? (data.femaleTournament || null) : null;
+
+        if(currentView === 'female' && !femaleTournament){
+          currentView = 'male';
+        }
+
+        maleInfo.textContent = maleTournament
+          ? `Masculino: ${activeNamesFromSlots(maleTournament.slots || []).length} participante(s)`
+          : 'Masculino: aguardando';
+
+        femaleInfo.textContent = femaleTournament
+          ? `Feminino: ${activeNamesFromSlots(femaleTournament.slots || []).length} participante(s)`
+          : 'Feminino: desativado';
+
+        modeBtns.forEach(b => {
+          const isFemaleBtn = b.dataset.view === 'female';
+          b.classList.toggle('active', b.dataset.view === currentView);
+          b.disabled = isFemaleBtn && !femaleTournament;
+          b.style.opacity = (isFemaleBtn && !femaleTournament) ? '.55' : '1';
+        });
+
+        if(changed || forceRender) renderCurrent();
+        const when = out?.savedAt ? new Date(out.savedAt).toLocaleString('pt-BR') : 'agora';
+        setSyncStatus(`ao vivo • ${when}`);
+      }catch(err){
+        console.error(err);
+        setSyncStatus('erro ao carregar');
+      }
+    }
+
+    modeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if(btn.disabled) return;
+        currentView = btn.dataset.view;
+        modeBtns.forEach(b => b.classList.toggle('active', b.dataset.view === currentView));
+        renderCurrent();
+      });
+    });
+
+    refreshBtn.addEventListener('click', () => loadRemoteState(true));
+
+    window.addEventListener('resize', () => {
+      if(getTournament()) renderCurrent();
+      applyZoom();
+    });
+
+    if(zoomOutBtn) zoomOutBtn.addEventListener('click', () => setZoom(zoomLevel - 0.1));
+    if(zoomInBtn) zoomInBtn.addEventListener('click', () => setZoom(zoomLevel + 0.1));
+    if(zoomResetBtn) zoomResetBtn.addEventListener('click', () => setZoom(1));
+
+    setZoom(1);
+    loadRemoteState(true);
+    setInterval(() => loadRemoteState(false), POLL_MS);
+  </script>
+</body>
+</html>

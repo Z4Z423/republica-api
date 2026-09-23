@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configurar aulas • República da Praia</title>
+  <link rel="icon" type="image/png" href="assets/img/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#07131f;--card:#0c1d2d;--line:rgba(255,255,255,.09);--text:#eef6ff;--muted:#9cb3c9;--aqua:#11c5d9;--mint:#00e0b8;--red:#ff8585}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0,rgba(17,197,217,.16),transparent 26%),linear-gradient(155deg,#07131f,#0c1d2d);font-family:Poppins,sans-serif;color:var(--text)}
+    .wrap{width:min(1050px,calc(100% - 30px));margin:auto;padding:32px 0 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:24px}.brand{display:flex;align-items:center;gap:14px}.brand img{width:62px;height:62px;object-fit:contain;border-radius:16px;padding:7px;background:#ffffff0c}.eyebrow{margin:0 0 5px;text-transform:uppercase;letter-spacing:.16em;color:var(--mint);font-size:.78rem;font-weight:700}h1{margin:0;font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.12}.sub{color:var(--muted);margin:7px 0 0;max-width:650px;font-size:.93rem}.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:13px;padding:12px 16px;font:700 .9rem Poppins,sans-serif;text-decoration:none;cursor:pointer}.primary{color:#032533;background:linear-gradient(135deg,var(--aqua),var(--mint))}.ghost{color:var(--text);background:#ffffff0b;border:1px solid var(--line)}.card{background:linear-gradient(180deg,#ffffff0c,#ffffff05);border:1px solid var(--line);border-radius:22px;padding:22px;margin-bottom:17px}.card h2{font-size:1.2rem;margin:0 0 3px}.hint{color:var(--muted);font-size:.88rem;margin:0 0 18px}.class-head{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end}.field label{display:block;font-size:.84rem;font-weight:600;margin:0 0 7px}.field input{width:100%;background:#ffffff08;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font:500 .92rem Poppins,sans-serif;outline:none}.field input:focus{border-color:var(--aqua);box-shadow:0 0 0 3px #11c5d91b}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:20px 0 10px}.section-title h3{margin:0;font-size:1rem}.rows{display:grid;gap:9px}.row{display:grid;grid-template-columns:minmax(160px,1.2fr) minmax(180px,1.5fr) 145px auto;gap:9px;align-items:end;padding:12px;background:#06121d80;border:1px solid var(--line);border-radius:15px}.planrow{grid-template-columns:minmax(160px,1fr) minmax(150px,.8fr) auto}.icon-btn{height:43px;width:44px;border:1px solid #ff85853d;border-radius:12px;background:#ff858514;color:#ffc6c6;cursor:pointer;font-size:1.05rem}.small-btn{border:1px solid #11c5d93b;border-radius:11px;background:#11c5d912;color:#c9fbff;padding:9px 12px;font:700 .82rem Poppins,sans-serif;cursor:pointer}.status{min-height:24px;color:var(--muted);font-size:.9rem;margin-top:14px}.status.error{color:#ffaaa9}.status.ok{color:#92edc5}.login{max-width:480px;margin:9vh auto 0}.login form{display:grid;gap:13px;margin-top:18px}.hidden{display:none!important}.note{color:var(--muted);font-size:.82rem;margin:14px 0 0}.empty{color:var(--muted);font-size:.9rem;padding:10px 2px}@media(max-width:700px){.wrap{width:calc(100% - 20px);padding-top:20px}.card{padding:16px}.row,.planrow{grid-template-columns:1fr 1fr}.row .field:first-child,.planrow .field:first-child{grid-column:1/-1}.row .icon-btn{width:100%;grid-column:1/-1;height:38px}.top .actions{width:100%}.top .actions .btn{flex:1}.class-head{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div class="brand"><img src="assets/logo-republica-da-praia.png" alt="República da Praia"><div><p class="eyebrow">Painel administrativo</p><h1>Configurações das aulas</h1><p class="sub">Edite preços, frequência dos planos, professores, dias e horários. Ao salvar, as informações atualizam no site.</p></div></div>
+      <div class="actions"><a class="btn ghost" href="index.html#aulas">Ver aulas no site</a><a class="btn ghost" href="admin.html">Painel principal</a><button id="logoutBtn" class="btn ghost hidden" type="button">Sair</button></div>
+    </header>
+
+    <section id="loginCard" class="card login">
+      <h2>Acesso do administrador</h2><p class="hint">Entre com o mesmo e-mail e senha usados no painel administrativo.</p>
+      <form id="loginForm"><div class="field"><label for="email">E-mail</label><input id="email" type="email" autocomplete="username" required></div><div class="field"><label for="password">Senha</label><input id="password" type="password" autocomplete="current-password" required></div><button class="btn primary" type="submit">Entrar</button></form><div id="loginStatus" class="status" aria-live="polite"></div>
+    </section>
+
+    <section id="editor" class="hidden" aria-live="polite"></section>
+    <div id="saveArea" class="actions hidden"><button id="saveBtn" class="btn primary" type="button">Salvar alterações</button><button id="reloadBtn" class="btn ghost" type="button">Descartar e recarregar</button></div>
+    <div id="saveStatus" class="status" role="status" aria-live="polite"></div>
+  </main>
+  <script src="js/admin-classes.js?v=20260923"></script>
+</body>
+</html>

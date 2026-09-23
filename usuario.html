@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minha Conta • República da Praia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/auth.css" />
+  <link rel="stylesheet" href="css/user.css" />
+</head>
+<body class="auth-page-body user-page-body">
+  <div class="auth-bg"></div>
+  <div class="auth-noise"></div>
+
+  <main class="user-shell">
+    <section class="user-header-card">
+      <div class="user-brand">
+        <img src="assets/logo-republica-da-praia.png" alt="República da Praia" class="user-logo">
+        <div>
+          <p class="user-eyebrow">Área do cliente</p>
+          <h1>Minha Conta</h1>
+          <p id="userWelcomeText">Carregando seus dados...</p>
+        </div>
+      </div>
+      <div class="user-header-actions">
+        <a class="user-btn user-btn-ghost" href="index.html">← Voltar ao site</a>
+        <a class="user-btn user-btn-ghost" href="index.html#agendamento">Agendar quadra</a>
+        <button id="btnUserLogout" class="user-btn user-btn-danger" type="button">Sair</button>
+      </div>
+    </section>
+
+    <section class="user-grid">
+      <div class="user-card">
+        <div class="user-card-head">
+          <h2>Minhas reservas</h2>
+          <div class="head-actions">
+            <button id="btnRefreshReservations" class="mini-action" type="button">Atualizar</button>
+            <button id="btnCancelNextReservation" class="mini-action mini-danger" type="button">Cancelar próxima</button>
+          </div>
+        </div>
+        <p class="user-muted">Reservas futuras vinculadas ao WhatsApp da sua conta.</p>
+        <div id="userReservationsStatus" class="user-status">Carregando reservas...</div>
+        <div id="userReservationsList" class="user-reservations-list"></div>
+      </div>
+
+      <div class="user-card">
+        <div class="user-card-head">
+          <h2>Registros de aulas e jogos</h2>
+        </div>
+        <p class="user-muted">Poste fotos dos seus treinos/jogos para guardar seu histórico na sua conta.</p>
+
+        <form id="photoPostForm" class="photo-form">
+          <input id="photoInput" type="file" accept="image/*" multiple>
+          <input id="photoCaption" type="text" placeholder="Legenda (ex: Aula de beach tennis - terça)">
+          <button class="user-btn user-btn-primary" type="submit">Postar fotos</button>
+        </form>
+        <div id="photoStatus" class="user-status"></div>
+
+        <div id="photoGallery" class="photo-gallery"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/user.js"></script>
+</body>
+</html>

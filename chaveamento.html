@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chaveamento 32 x 32 - Editável</title>
+  <style>
+    :root{
+      --bg:#06101d;
+      --bg2:#0d1930;
+      --card:#122042;
+      --card2:#17284d;
+      --text:#eef4ff;
+      --muted:#98add8;
+      --accent:#4aa7ff;
+      --accent2:#7b5cff;
+      --ok:#2fd39a;
+      --danger:#ff6b6b;
+      --line:#28447e;
+      --shadow:0 10px 25px rgba(0,0,0,.25);
+    }
+
+    *{box-sizing:border-box}
+
+    html,body{
+      margin:0;
+      padding:0;
+      width:100%;
+      min-height:100%;
+      font-family:Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(74,167,255,.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(123,92,255,.15), transparent 28%),
+        linear-gradient(180deg,#05101b,#081423 100%);
+      color:var(--text);
+      overflow-x:hidden;
+      overflow-y:auto;
+    }
+
+    .app{
+      width:100%;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      padding:10px;
+    }
+
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      padding:12px 14px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(135deg, rgba(74,167,255,.13), rgba(123,92,255,.11));
+      box-shadow:var(--shadow);
+      position:sticky;
+      top:0;
+      z-index:50;
+    }
+
+    .title h1{ margin:0; font-size:24px; line-height:1; }
+    .title p{ margin:5px 0 0; color:var(--muted); font-size:12px; }
+
+    .actions{ display:flex; gap:8px; flex-wrap:wrap; }
+
+    button{
+      border:none;
+      outline:none;
+      cursor:pointer;
+      border-radius:12px;
+      padding:10px 14px;
+      font-size:13px;
+      font-weight:700;
+      transition:.15s ease;
+    }
+    button:hover{transform:translateY(-1px)}
+    button:active{transform:translateY(1px)}
+
+    .btn-primary{ background:linear-gradient(135deg,var(--accent),var(--accent2)); color:white; }
+    .btn-secondary{ background:#18284a; color:#edf3ff; border:1px solid rgba(255,255,255,.08); }
+    .btn-danger{ background:linear-gradient(135deg, rgba(255,107,107,.25), rgba(255,107,107,.12)); color:#fff; border:1px solid rgba(255,107,107,.3); }
+    .btn-success{ background:linear-gradient(135deg, rgba(47,211,154,.25), rgba(47,211,154,.12)); color:#fff; border:1px solid rgba(47,211,154,.3); }
+
+    .mode-bar,.info,.mini-actions{ display:flex; justify-content:center; gap:8px; flex-wrap:wrap; }
+
+    .zoom-bar{ display:flex; justify-content:center; gap:8px; flex-wrap:wrap; }
+    .zoom-btn{ min-width:46px; padding:10px 12px; font-size:18px; line-height:1; }
+    .mode-btn.active{ background:linear-gradient(135deg, rgba(74,167,255,.24), rgba(123,92,255,.24)); border:1px solid rgba(255,255,255,.15); }
+
+    .badge{
+      padding:8px 12px;
+      border-radius:999px;
+      background:#112143;
+      border:1px solid rgba(255,255,255,.08);
+      font-size:12px;
+      font-weight:700;
+      color:#e9f1ff;
+    }
+
+    .viewport{
+      position:relative;
+      width:100%;
+      min-height:1900px;
+      border-radius:20px;
+      border:1px solid rgba(255,255,255,.06);
+      background:linear-gradient(180deg, rgba(4,12,22,.35), rgba(6,15,27,.65));
+      overflow-x:auto;
+      overflow-y:visible;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior-x:contain;
+      overscroll-behavior-y:auto;
+      touch-action:pan-x pan-y;
+      padding:20px 12px 60px;
+      cursor:auto;
+    }
+    .viewport.dragging{ cursor:auto; user-select:none; }
+    @media (hover:none) and (pointer:coarse){
+      .viewport{ cursor:auto; overscroll-behavior-x:contain; overscroll-behavior-y:auto; }
+      .viewport.dragging{ cursor:auto; }
+      .zoom-btn{ min-width:54px; min-height:54px; font-size:22px; }
+    }
+    .stage-wrap{ width:max-content; min-width:100%; display:flex; justify-content:center; align-items:flex-start; transform-origin:top center; transition:transform .18s ease; will-change:transform; }
+
+    @media (max-width: 900px){
+      .viewport{
+        min-height:auto;
+        padding:16px 10px 48px;
+      }
+      .stage-wrap{
+        min-width:max-content;
+        justify-content:flex-start;
+      }
+    }
+    .stage{ position:relative; width:min(100%, 1700px); min-height:1800px; }
+
+    .round-label{
+      position:absolute; text-align:center; font-size:11px; font-weight:700; color:#dce8ff; padding:7px 4px;
+      border-radius:10px; background:#16274d; border:1px solid rgba(255,255,255,.08); z-index:5;
+    }
+
+    .match{
+      position:absolute; border-radius:12px; overflow:hidden;
+      background:linear-gradient(180deg,var(--card),var(--card2)); border:1px solid rgba(255,255,255,.08);
+      box-shadow:var(--shadow); z-index:3;
+    }
+
+    .player{
+      width:100%; min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:8px;
+      padding:8px 10px; border:none; border-bottom:1px solid rgba(255,255,255,.08); background:transparent;
+      color:#eef4ff; font-size:10px; font-weight:700; text-align:left; cursor:pointer;
+    }
+    .player:last-child{border-bottom:none}
+    .player:hover{ background:rgba(255,255,255,.04); transform:none; }
+    .player span{ min-width:0; flex:1; white-space:normal; overflow:visible; text-overflow:clip; line-height:1.25; word-break:break-word; }
+    .player small{ flex-shrink:0; font-size:9px; color:#9fb2db; font-weight:700; }
+    .player.disabled{ cursor:not-allowed; color:#88a0ce; }
+    .player.pending{ color:#88a0ce; }
+    .player.bye{ color:#ffd37d; }
+    .player.winner{ background:linear-gradient(135deg, rgba(47,211,154,.18), rgba(47,211,154,.08)); color:#edfff8; }
+
+    .line{ position:absolute; background:var(--line); opacity:.9; z-index:1; }
+
+    .final-title{
+      position:absolute; text-align:center; padding:10px; border-radius:14px 14px 0 0;
+      background:linear-gradient(135deg, rgba(255,209,94,.20), rgba(74,167,255,.14));
+      border:1px solid rgba(255,255,255,.08); border-bottom:none; font-weight:800; z-index:6;
+    }
+
+    .champion-box{
+      position:absolute; padding:14px 12px; border-radius:16px;
+      background:linear-gradient(135deg, rgba(255,209,94,.18), rgba(123,92,255,.14));
+      border:1px solid rgba(255,255,255,.08); text-align:center; z-index:6; box-shadow:var(--shadow);
+    }
+    .champion-box .label{ display:block; font-size:10px; text-transform:uppercase; letter-spacing:.18em; color:#fff1bf; font-weight:800; margin-bottom:6px; }
+    .champion-box .name{ font-size:15px; font-weight:800; line-height:1.2; word-break:break-word; }
+
+    .overlay{
+      position:fixed; inset:0; background:rgba(2,7,14,.78); backdrop-filter:blur(8px);
+      display:flex; align-items:center; justify-content:center; z-index:999; padding:20px;
+    }
+    .overlay.hidden{display:none}
+
+    .setup{
+      width:min(1100px,96vw); max-height:92vh; overflow:auto; border-radius:24px;
+      background:linear-gradient(180deg,#0b1730,#091323);
+      border:1px solid rgba(255,255,255,.08); box-shadow:0 25px 80px rgba(0,0,0,.42);
+    }
+    .setup.narrow{ width:min(980px,96vw); }
+    .setup-head{ padding:20px; border-bottom:1px solid rgba(255,255,255,.08); background:linear-gradient(135deg, rgba(74,167,255,.14), rgba(123,92,255,.11)); }
+    .setup-head h2{ margin:0 0 6px; font-size:28px; }
+    .setup-head p{ margin:0; color:var(--muted); line-height:1.5; font-size:14px; }
+    .setup-body{ padding:20px; }
+
+    .grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .field{ display:flex; flex-direction:column; gap:8px; }
+    .field label{ font-size:14px; font-weight:700; }
+
+    textarea, input[type="text"]{
+      width:100%; border:none; outline:none; border-radius:16px; padding:14px; background:var(--bg2); color:var(--text);
+      border:1px solid rgba(255,255,255,.08); font-size:14px; line-height:1.45;
+    }
+    textarea{ min-height:320px; resize:vertical; }
+
+    .toggle{ display:flex; align-items:center; gap:10px; margin:0 0 12px; padding:12px 14px; border-radius:14px; background:#102043; border:1px solid rgba(255,255,255,.08); }
+    input[type="checkbox"]{ transform:scale(1.15); accent-color:var(--accent); }
+
+    .setup-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    .status{ margin-top:14px; padding:12px 14px; border-radius:14px; background:#112040; border:1px solid rgba(255,255,255,.08); font-size:14px; }
+    .status.error{ background:rgba(255,107,107,.10); border-color:rgba(255,107,107,.24); color:#ffd7d7; }
+    .hidden{display:none !important}
+
+    .manager-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+    .slot-card{
+      background:#0f1d3b; border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:12px; display:flex; flex-direction:column; gap:8px;
+    }
+    .slot-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); font-weight:700; }
+    .slot-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+    .slot-actions button{ padding:8px 10px; font-size:12px; }
+    .muted{ color:var(--muted); }
+    .help{ font-size:12px; color:var(--muted); line-height:1.4; }
+
+    @media (max-width:1100px){
+      .stage{ width:100%; }
+      .grid{ grid-template-columns:1fr; }
+      .topbar{ flex-direction:column; align-items:flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title">
+        <h1>Chaveamento</h1>
+        <p>Agora com troca, remoção e inclusão de participantes durante as disputas.</p>
+      </div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="editBtn">Editar nomes</button>
+        <button class="btn-secondary" id="manageBtn">Gerenciar participantes</button>
+        <button class="btn-secondary" id="resetBtn">Resetar resultados</button>
+      </div>
+    </div>
+
+    <div class="mode-bar">
+      <button class="btn-secondary mode-btn active" data-view="male">Masculino</button>
+      <button class="btn-secondary mode-btn" data-view="female">Feminino</button>
+    </div>
+
+    <div class="info">
+      <div class="badge" id="maleInfo">Masculino: aguardando</div>
+      <div class="badge" id="femaleInfo">Feminino: desativado</div>
+    </div>
+
+    <div class="mini-actions">
+      <div class="badge" id="currentViewBadge">Editando: Masculino</div>
+      <div class="badge" id="slotInfoBadge">Vagas: --</div>
+      <div class="badge" id="syncBadge">Sincronização: carregando...</div>
+    </div>
+
+    <div class="zoom-bar">
+      <div class="badge">No celular: arraste para os lados com o dedo</div>
+      <button class="btn-secondary zoom-btn" id="zoomOutBtn" title="Diminuir zoom">−</button>
+      <div class="badge" id="zoomBadge">Zoom: 100%</div>
+      <button class="btn-secondary zoom-btn" id="zoomInBtn" title="Aumentar zoom">+</button>
+      <button class="btn-secondary" id="zoomResetBtn">100%</button>
+    </div>
+
+    <div class="viewport">
+      <div class="stage-wrap">
+        <div class="stage" id="stage"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="setup narrow">
+      <div class="setup-head">
+        <h2>Configurar participantes</h2>
+        <p>Gera a chave clássica com os dois lados aparecendo ao mesmo tempo.</p>
+      </div>
+
+      <div class="setup-body">
+        <div class="grid">
+          <div class="field">
+            <label for="maleNames">Masculino (até 64)</label>
+            <textarea id="maleNames" placeholder="Digite um nome por linha"></textarea>
+          </div>
+
+          <div>
+            <div class="toggle">
+              <input type="checkbox" id="enableFemale">
+              <label for="enableFemale" style="margin:0;font-weight:700;">Ativar feminino (até 16)</label>
+            </div>
+
+            <div class="field hidden" id="femaleField">
+              <label for="femaleNames">Feminino</label>
+              <textarea id="femaleNames" placeholder="Digite um nome por linha"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-actions">
+          <button class="btn-primary" id="generateBtn">Gerar chaveamento</button>
+          <button class="btn-secondary" id="exampleBtn">Preencher exemplo</button>
+          <button class="btn-secondary" id="closeBtn">Fechar</button>
+        </div>
+
+        <div class="status" id="status">Cole os nomes e gere o chaveamento.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="managerOverlay">
+    <div class="setup">
+      <div class="setup-head">
+        <h2>Gerenciar participantes</h2>
+        <p>Você pode trocar um nome, remover alguém ou preencher uma vaga vazia/BYE sem refazer o campeonato inteiro.</p>
+      </div>
+      <div class="setup-body">
+        <div class="help" style="margin-bottom:14px;">
+          Dica: apagar o nome transforma a vaga em BYE. Escrever um novo nome em uma vaga vazia adiciona um novo participante.
+          Quando você salva, o sistema mantém o máximo possível do andamento e recalcula apenas o que precisa.
+        </div>
+        <div class="manager-grid" id="managerGrid"></div>
+        <div class="setup-actions">
+          <button class="btn-success" id="saveManagerBtn">Salvar alterações</button>
+          <button class="btn-secondary" id="fillFirstByeBtn">Preencher primeira vaga vazia</button>
+          <button class="btn-secondary" id="managerCloseBtn">Fechar</button>
+        </div>
+        <div class="status" id="managerStatus">Nenhuma alteração pendente.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const overlay = document.getElementById('overlay');
+    const editBtn = document.getElementById('editBtn');
+    const manageBtn = document.getElementById('manageBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const generateBtn = document.getElementById('generateBtn');
+    const exampleBtn = document.getElementById('exampleBtn');
+    const enableFemale = document.getElementById('enableFemale');
+    const femaleField = document.getElementById('femaleField');
+    const maleNamesEl = document.getElementById('maleNames');
+    const femaleNamesEl = document.getElementById('femaleNames');
+    const statusEl = document.getElementById('status');
+    const maleInfo = document.getElementById('maleInfo');
+    const femaleInfo = document.getElementById('femaleInfo');
+    const stage = document.getElementById('stage');
+    const stageWrap = document.querySelector('.stage-wrap');
+    const viewport = document.querySelector('.viewport');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomResetBtn = document.getElementById('zoomResetBtn');
+    const zoomBadge = document.getElementById('zoomBadge');
+    let zoomLevel = 1;
+    const modeBtns = document.querySelectorAll('.mode-btn');
+    const currentViewBadge = document.getElementById('currentViewBadge');
+    const slotInfoBadge = document.getElementById('slotInfoBadge');
+
+    const managerOverlay = document.getElementById('managerOverlay');
+    const managerGrid = document.getElementById('managerGrid');
+    const managerStatus = document.getElementById('managerStatus');
+    const managerCloseBtn = document.getElementById('managerCloseBtn');
+    const saveManagerBtn = document.getElementById('saveManagerBtn');
+    const fillFirstByeBtn = document.getElementById('fillFirstByeBtn');
+
+
+    const API_BASE = (window.CHAVEAMENTO_API_BASE || 'https://republica-api-1.onrender.com').replace(/\/$/, '');
+    const syncBadge = document.getElementById('syncBadge');
+    let saveTimer = null;
+    let isHydrating = false;
+
+    function setSyncStatus(msg){
+      if(syncBadge) syncBadge.textContent = `Sincronização: ${msg}`;
+    }
+
+    function buildPayload(){
+      return {
+        currentView,
+        enableFemale: !!femaleTournament,
+        maleNamesInput: maleNamesEl.value,
+        femaleNamesInput: femaleNamesEl.value,
+        maleBasePlayers,
+        femaleBasePlayers,
+        maleTournament,
+        femaleTournament
+      };
+    }
+
+    async function saveRemoteState(reason = 'alteração'){
+      if(isHydrating) return;
+      const hasTournament = !!maleTournament || !!femaleTournament;
+      if(!hasTournament) return;
+      try{
+        setSyncStatus('salvando...');
+        const resp = await fetch(`${API_BASE}/api/chaveamento/state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload())
+        });
+        if(!resp.ok) throw new Error('Falha ao salvar');
+        const out = await resp.json();
+        const when = out?.savedAt ? new Date(out.savedAt).toLocaleString('pt-BR') : 'agora';
+        setSyncStatus(`salvo (${reason}) • ${when}`);
+      }catch(err){
+        console.error(err);
+        setSyncStatus('erro ao salvar');
+      }
+    }
+
+    function scheduleSave(reason = 'alteração'){
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => saveRemoteState(reason), 300);
+    }
+
+    async function loadRemoteState(){
+      try{
+        setSyncStatus('carregando...');
+        const resp = await fetch(`${API_BASE}/api/chaveamento/state`, { cache: 'no-store' });
+        if(!resp.ok) throw new Error('Falha ao carregar');
+        const out = await resp.json();
+        const data = out?.data;
+        if(!data){
+          setSyncStatus('sem dados salvos');
+          return;
+        }
+
+        isHydrating = true;
+        currentView = data.currentView === 'female' ? 'female' : 'male';
+        maleNamesEl.value = data.maleNamesInput || '';
+        femaleNamesEl.value = data.femaleNamesInput || '';
+        enableFemale.checked = !!data.enableFemale;
+        femaleField.classList.toggle('hidden', !enableFemale.checked);
+        maleBasePlayers = Array.isArray(data.maleBasePlayers) ? data.maleBasePlayers : [];
+        femaleBasePlayers = Array.isArray(data.femaleBasePlayers) ? data.femaleBasePlayers : [];
+        maleTournament = data.maleTournament || null;
+        femaleTournament = data.femaleTournament || null;
+
+        maleInfo.textContent = maleTournament
+          ? `Masculino: ${activeNamesFromSlots(maleTournament.slots || []).length} participante(s)`
+          : 'Masculino: aguardando';
+        femaleInfo.textContent = femaleTournament
+          ? `Feminino: ${activeNamesFromSlots(femaleTournament.slots || []).length} participante(s)`
+          : (enableFemale.checked ? 'Feminino: aguardando' : 'Feminino: desativado');
+
+        modeBtns.forEach(b => b.classList.toggle('active', b.dataset.view === currentView));
+        if(maleTournament || femaleTournament) overlay.classList.add('hidden');
+        renderCurrent();
+        const when = out?.savedAt ? new Date(out.savedAt).toLocaleString('pt-BR') : 'agora';
+        setSyncStatus(`carregado • ${when}`);
+      }catch(err){
+        console.error(err);
+        setSyncStatus('erro ao carregar');
+      }finally{
+        isHydrating = false;
+      }
+    }
+
+    let currentView = 'male';
+    let maleBasePlayers = [];
+    let femaleBasePlayers = [];
+    let maleTournament = null;
+    let femaleTournament = null;
+    let managerDraftSlots = [];
+
+    enableFemale.addEventListener('change', () => {
+      femaleField.classList.toggle('hidden', !enableFemale.checked);
+      if(!enableFemale.checked) femaleInfo.textContent = 'Feminino: desativado';
+    });
+
+    editBtn.addEventListener('click', () => overlay.classList.remove('hidden'));
+    manageBtn.addEventListener('click', openManager);
+    managerCloseBtn.addEventListener('click', () => managerOverlay.classList.add('hidden'));
+
+    closeBtn.addEventListener('click', () => {
+      if (maleTournament) overlay.classList.add('hidden');
+    });
+
+    function setStatus(msg, error=false){
+      statusEl.textContent = msg;
+      statusEl.className = error ? 'status error' : 'status';
+    }
+
+    function setManagerStatus(msg, error=false){
+      managerStatus.textContent = msg;
+      managerStatus.className = error ? 'status error' : 'status';
+    }
+
+    modeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modeBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentView = btn.dataset.view;
+        renderCurrent();
+      });
+    });
+
+    function parseNames(text){
+      return text.split('\n').map(v => v.trim()).filter(Boolean);
+    }
+
+    function shuffle(arr){
+      const a = [...arr];
+      for(let i = a.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function fillWithBye(arr, total){
+      const a = [...arr];
+      while(a.length < total) a.push('BYE');
+      return a.slice(0, total);
+    }
+
+    function pairPlayers(players){
+      const out = [];
+      for(let i=0;i<players.length;i+=2){
+        out.push({ p1: players[i] || null, p2: players[i+1] || null, winner: null });
+      }
+      return out;
+    }
+
+    function createRounds(sidePlayersCount){
+      const rounds = [];
+      let size = sidePlayersCount;
+      while(size >= 2){
+        rounds.push(Array.from({length:size/2}, () => ({ p1:null, p2:null, winner:null })));
+        size /= 2;
+      }
+      return rounds;
+    }
+
+    function createTournament(allPlayers){
+      const half = allPlayers.length / 2;
+      const leftPlayers = allPlayers.slice(0, half);
+      const rightPlayers = allPlayers.slice(half);
+
+      const leftRounds = createRounds(half);
+      const rightRounds = createRounds(half);
+
+      leftRounds[0] = pairPlayers(leftPlayers);
+      rightRounds[0] = pairPlayers(rightPlayers);
+
+      const tournament = {
+        total: allPlayers.length,
+        half,
+        slots: [...allPlayers],
+        leftRounds,
+        rightRounds,
+        finalMatch: { p1:null, p2:null, winner:null }
+      };
+
+      autoAdvanceByes(tournament, 'left');
+      autoAdvanceByes(tournament, 'right');
+      return tournament;
+    }
+
+    function autoAdvanceByes(tournament, side){
+      const rounds = side === 'left' ? tournament.leftRounds : tournament.rightRounds;
+
+      for(let r=0;r<rounds.length;r++){
+        for(let m=0;m<rounds[r].length;m++){
+          const match = rounds[r][m];
+          if(match.winner) continue;
+
+          const { p1, p2 } = match;
+
+          if(p1 === 'BYE' && p2 && p2 !== 'BYE'){
+            pickWinner(tournament, side, r, m, 2, true);
+          } else if(p2 === 'BYE' && p1 && p1 !== 'BYE'){
+            pickWinner(tournament, side, r, m, 1, true);
+          } else if(p1 === 'BYE' && p2 === 'BYE'){
+            pickWinner(tournament, side, r, m, 1, true);
+          }
+        }
+      }
+    }
+
+    function clearForward(tournament, side, roundIndex, matchIndex){
+      const rounds = side === 'left' ? tournament.leftRounds : tournament.rightRounds;
+
+      for(let r=roundIndex;r<rounds.length;r++){
+        const match = rounds[r][matchIndex];
+        if(!match) break;
+        match.winner = null;
+
+        if(r < rounds.length - 1){
+          const nextIndex = Math.floor(matchIndex / 2);
+          const slot = matchIndex % 2 === 0 ? 'p1' : 'p2';
+          rounds[r + 1][nextIndex][slot] = null;
+          rounds[r + 1][nextIndex].winner = null;
+          matchIndex = nextIndex;
+        } else {
+          if(side === 'left') tournament.finalMatch.p1 = null;
+          else tournament.finalMatch.p2 = null;
+          tournament.finalMatch.winner = null;
+        }
+      }
+    }
+
+    function pickWinner(tournament, side, roundIndex, matchIndex, playerNum, silent=false){
+      const rounds = side === 'left' ? tournament.leftRounds : tournament.rightRounds;
+      const match = rounds[roundIndex][matchIndex];
+      const winner = playerNum === 1 ? match.p1 : match.p2;
+      if(!winner) return;
+
+      match.winner = winner;
+
+      if(roundIndex < rounds.length - 1){
+        const nextIndex = Math.floor(matchIndex / 2);
+        const slot = matchIndex % 2 === 0 ? 'p1' : 'p2';
+        rounds[roundIndex + 1][nextIndex][slot] = winner;
+        rounds[roundIndex + 1][nextIndex].winner = null;
+        clearForward(tournament, side, roundIndex + 1, nextIndex);
+        rounds[roundIndex + 1][nextIndex][slot] = winner;
+      } else {
+        if(side === 'left') tournament.finalMatch.p1 = winner;
+        else tournament.finalMatch.p2 = winner;
+        tournament.finalMatch.winner = null;
+      }
+
+      autoAdvanceByes(tournament, side);
+      if(!silent) { renderCurrent(); scheduleSave('resultado'); }
+    }
+
+    function pickFinalWinner(tournament, playerNum){
+      const winner = playerNum === 1 ? tournament.finalMatch.p1 : tournament.finalMatch.p2;
+      if(!winner) return;
+      tournament.finalMatch.winner = winner;
+      renderCurrent();
+      scheduleSave('final');
+    }
+
+    function createPlayerButton(name, winner, clickable, label, onClick){
+      const btn = document.createElement('button');
+      btn.className = 'player';
+
+      if(!name){
+        btn.classList.add('disabled','pending');
+        btn.innerHTML = `<span>---</span><small>Aguardando</small>`;
+        btn.disabled = true;
+        return btn;
+      }
+
+      if(name === 'BYE'){
+        btn.classList.add('bye','disabled');
+        btn.innerHTML = `<span>BYE</span><small>Automático</small>`;
+        btn.disabled = true;
+        return btn;
+      }
+
+      if(winner === name) btn.classList.add('winner');
+      btn.innerHTML = `<span>${name}</span><small>${label}</small>`;
+
+      if(!clickable){
+        btn.classList.add('disabled');
+        btn.disabled = true;
+        return btn;
+      }
+
+      btn.addEventListener('click', onClick);
+      return btn;
+    }
+
+    function roundNames(half){
+      if(half === 32) return ['32 avos', '16 avos', 'Oitavas', 'Quartas', 'Semifinal'];
+      if(half === 8) return ['Oitavas', 'Quartas', 'Semifinal'];
+      return ['Rodada 1','Rodada 2','Rodada 3'];
+    }
+
+    function getTournament(){
+      return currentView === 'male' ? maleTournament : femaleTournament;
+    }
+
+    function setTournament(view, tournament){
+      if(view === 'male') maleTournament = tournament;
+      else femaleTournament = tournament;
+    }
+
+    function getBasePlayers(view){
+      return view === 'male' ? maleBasePlayers : femaleBasePlayers;
+    }
+
+    function setBasePlayers(view, arr){
+      if(view === 'male') maleBasePlayers = arr;
+      else femaleBasePlayers = arr;
+    }
+
+    function activeNamesFromSlots(slots){
+      return slots.filter(v => v && v !== 'BYE');
+    }
+
+    function collectWinnerPaths(tournament){
+      const winners = [];
+      ['left','right'].forEach(side => {
+        const rounds = side === 'left' ? tournament.leftRounds : tournament.rightRounds;
+        rounds.forEach((round, roundIndex) => {
+          round.forEach((match, matchIndex) => {
+            if(match.winner && match.winner !== 'BYE'){
+              winners.push({ side, roundIndex, matchIndex, winner: match.winner });
+            }
+          });
+        });
+      });
+      if(tournament.finalMatch.winner && tournament.finalMatch.winner !== 'BYE'){
+        winners.push({ side:'final', winner:tournament.finalMatch.winner });
+      }
+      return winners;
+    }
+
+    function findNameInSlots(slots, name){
+      return slots.findIndex(v => v === name);
+    }
+
+    function replayWinners(tournament, winnerPaths){
+      for(const item of winnerPaths){
+        if(item.side === 'final') continue;
+        const rounds = item.side === 'left' ? tournament.leftRounds : tournament.rightRounds;
+        const match = rounds?.[item.roundIndex]?.[item.matchIndex];
+        if(!match) continue;
+        if(match.p1 === item.winner && match.p2 && match.p2 !== 'BYE'){
+          pickWinner(tournament, item.side, item.roundIndex, item.matchIndex, 1, true);
+        } else if(match.p2 === item.winner && match.p1 && match.p1 !== 'BYE'){
+          pickWinner(tournament, item.side, item.roundIndex, item.matchIndex, 2, true);
+        }
+      }
+      const finalWinner = winnerPaths.find(v => v.side === 'final')?.winner;
+      if(finalWinner){
+        if(tournament.finalMatch.p1 === finalWinner && tournament.finalMatch.p2) pickFinalWinner(tournament, 1);
+        else if(tournament.finalMatch.p2 === finalWinner && tournament.finalMatch.p1) pickFinalWinner(tournament, 2);
+      }
+    }
+
+    function updateInfoBadges(){
+      currentViewBadge.textContent = `Editando: ${currentView === 'male' ? 'Masculino' : 'Feminino'}`;
+      const t = getTournament();
+      if(!t){
+        slotInfoBadge.textContent = 'Vagas: --';
+        return;
+      }
+      const ativos = activeNamesFromSlots(t.slots).length;
+      const livres = t.slots.filter(v => !v || v === 'BYE').length;
+      slotInfoBadge.textContent = `Ativos: ${ativos} • Vagas vazias: ${livres}`;
+    }
+
+    function applySlotChanges(view, newSlots){
+      const oldTournament = view === 'male' ? maleTournament : femaleTournament;
+      if(!oldTournament) return;
+
+      const total = oldTournament.total;
+      const sanitized = newSlots.map(v => (v || '').trim() || 'BYE').slice(0, total);
+      while(sanitized.length < total) sanitized.push('BYE');
+
+      const realNames = sanitized.filter(v => v !== 'BYE');
+      const lowered = realNames.map(v => v.toLowerCase());
+      const dup = lowered.find((v, i) => lowered.indexOf(v) !== i);
+      if(dup){
+        setManagerStatus('Existem nomes duplicados. Ajuste antes de salvar.', true);
+        return false;
+      }
+
+      const winnerPaths = collectWinnerPaths(oldTournament);
+      const newTournament = createTournament(sanitized);
+      replayWinners(newTournament, winnerPaths);
+      newTournament.slots = [...sanitized];
+
+      setTournament(view, newTournament);
+      setBasePlayers(view, activeNamesFromSlots(sanitized));
+
+      if(view === 'male') maleInfo.textContent = `Masculino: ${activeNamesFromSlots(sanitized).length} participante(s)`;
+      else femaleInfo.textContent = `Feminino: ${activeNamesFromSlots(sanitized).length} participante(s)`;
+
+      renderCurrent();
+      scheduleSave('participantes');
+      return true;
+    }
+
+    function openManager(){
+      const t = getTournament();
+      if(!t){
+        setStatus('Gere o chaveamento antes de gerenciar participantes.', true);
+        return;
+      }
+      managerDraftSlots = [...t.slots];
+      buildManagerGrid();
+      setManagerStatus('Altere os nomes e clique em salvar.');
+      managerOverlay.classList.remove('hidden');
+    }
+
+    function buildManagerGrid(){
+      const t = getTournament();
+      managerGrid.innerHTML = '';
+      const label = currentView === 'male' ? 'Jogador' : 'Jogadora';
+
+      managerDraftSlots.forEach((name, idx) => {
+        const card = document.createElement('div');
+        card.className = 'slot-card';
+        const isBye = !name || name === 'BYE';
+        card.innerHTML = `
+          <div class="slot-head">
+            <span>Vaga ${idx + 1}</span>
+            <span>${isBye ? 'Vazia/BYE' : label}</span>
+          </div>
+          <input type="text" value="${isBye ? '' : escapeHtml(name)}" data-slot-index="${idx}" placeholder="Nome do participante">
+          <div class="slot-actions">
+            <button class="btn-secondary" data-action="clear" data-slot-index="${idx}">Remover</button>
+            <button class="btn-secondary" data-action="bye" data-slot-index="${idx}">Virar BYE</button>
+          </div>
+        `;
+        managerGrid.appendChild(card);
+      });
+
+      managerGrid.querySelectorAll('input[data-slot-index]').forEach(input => {
+        input.addEventListener('input', e => {
+          const idx = Number(e.target.dataset.slotIndex);
+          managerDraftSlots[idx] = e.target.value;
+          setManagerStatus('Alterações pendentes.');
+        });
+      });
+
+      managerGrid.querySelectorAll('button[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.slotIndex);
+          if(btn.dataset.action === 'clear' || btn.dataset.action === 'bye'){
+            managerDraftSlots[idx] = 'BYE';
+            buildManagerGrid();
+            setManagerStatus('Participante removido da vaga.');
+          }
+        });
+      });
+    }
+
+    function escapeHtml(str){
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    saveManagerBtn.addEventListener('click', () => {
+      const inputs = [...managerGrid.querySelectorAll('input[data-slot-index]')];
+      inputs.forEach(input => {
+        managerDraftSlots[Number(input.dataset.slotIndex)] = input.value;
+      });
+      const ok = applySlotChanges(currentView, managerDraftSlots);
+      if(ok){
+        managerOverlay.classList.add('hidden');
+        setManagerStatus('Alterações salvas.');
+        setStatus('Participantes atualizados com sucesso.');
+      }
+    });
+
+    fillFirstByeBtn.addEventListener('click', () => {
+      const idx = managerDraftSlots.findIndex(v => !v || v === 'BYE');
+      if(idx === -1){
+        setManagerStatus('Não há vaga vazia/BYE disponível nesse chaveamento.', true);
+        return;
+      }
+      const nome = prompt('Digite o nome do novo participante:');
+      if(!nome || !nome.trim()) return;
+      managerDraftSlots[idx] = nome.trim();
+      buildManagerGrid();
+      setManagerStatus(`Novo participante adicionado na vaga ${idx + 1}.`);
+    });
+
+    function applyZoom(){
+      if(!stageWrap || !viewport) return;
+      const isMobileLayout = window.innerWidth <= 900;
+      stageWrap.style.justifyContent = isMobileLayout ? 'flex-start' : 'center';
+      stageWrap.style.transform = `scale(${zoomLevel})`;
+      const width = stage.offsetWidth || 0;
+      const height = stage.offsetHeight || 0;
+      const scaledWidth = width * zoomLevel;
+      stageWrap.style.width = (isMobileLayout ? Math.max(scaledWidth, viewport.clientWidth - 24) : Math.max(viewport.clientWidth - 24, scaledWidth)) + 'px';
+      stageWrap.style.height = Math.max(height * zoomLevel, 600) + 'px';
+      if(zoomBadge) zoomBadge.textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+    }
+
+    function setZoom(nextZoom){
+      zoomLevel = Math.max(0.55, Math.min(1.8, Number(nextZoom) || 1));
+      applyZoom();
+    }
+
+    function renderCurrent(){
+      const t = getTournament();
+      stage.innerHTML = '';
+      updateInfoBadges();
+
+      if(!t){
+        stage.style.height = '1600px';
+        applyZoom();
+        return;
+      }
+
+      const stageWidth = stage.clientWidth || 1600;
+      const sideRounds = t.leftRounds.length;
+      const names = roundNames(t.half);
+
+      const outerPad = 10;
+      const centerWidth = t.half === 32 ? 170 : 220;
+      const colGap = t.half === 32 ? 18 : 28;
+
+      const usable = stageWidth - outerPad * 2 - centerWidth;
+      const oneSide = usable / 2;
+      const matchW = Math.floor((oneSide - (sideRounds - 1) * colGap) / sideRounds);
+      const clampedMatchW = Math.max(110, Math.min(150, matchW));
+      const realSideWidth = sideRounds * clampedMatchW + (sideRounds - 1) * colGap;
+      const totalWidth = realSideWidth * 2 + centerWidth;
+
+      const isMobileLayout = window.innerWidth <= 900;
+      stage.style.width = (isMobileLayout ? totalWidth : Math.min(stageWidth, totalWidth)) + 'px';
+
+      const leftStartX = Math.max(0, ((isMobileLayout ? totalWidth : stage.clientWidth) - totalWidth) / 2);
+      const centerX = leftStartX + realSideWidth;
+      const rightStartX = centerX + centerWidth;
+
+      const matchH = 104;
+      const topPad = 55;
+      const rowUnit = t.half === 32 ? 124 : 156;
+      const halfMatches = t.leftRounds[0].length;
+      const totalHeight = (halfMatches * 2 * rowUnit) + 220;
+      stage.style.height = totalHeight + 'px';
+      requestAnimationFrame(applyZoom);
+
+      function addLine(x,y,w,h){
+        const line = document.createElement('div');
+        line.className = 'line';
+        line.style.left = x + 'px';
+        line.style.top = y + 'px';
+        line.style.width = w + 'px';
+        line.style.height = h + 'px';
+        stage.appendChild(line);
+      }
+
+      function matchTop(roundIndex, matchIndex){
+        return topPad + ((Math.pow(2, roundIndex) - 1) * rowUnit) + (matchIndex * Math.pow(2, roundIndex + 1) * rowUnit);
+      }
+
+      function renderSide(rounds, side){
+        for(let r=0;r<rounds.length;r++){
+          const x = side === 'left'
+            ? leftStartX + r * (clampedMatchW + colGap)
+            : rightStartX + (sideRounds - 1 - r) * (clampedMatchW + colGap);
+
+          const label = document.createElement('div');
+          label.className = 'round-label';
+          label.textContent = names[r] || `Rodada ${r+1}`;
+          label.style.left = x + 'px';
+          label.style.top = '8px';
+          label.style.width = clampedMatchW + 'px';
+          stage.appendChild(label);
+
+          rounds[r].forEach((match, m) => {
+            const top = matchTop(r, m);
+
+            const box = document.createElement('div');
+            box.className = 'match';
+            box.style.left = x + 'px';
+            box.style.top = top + 'px';
+            box.style.width = clampedMatchW + 'px';
+
+            const p1Clickable = !!match.p1 && !!match.p2 && match.p1 !== 'BYE';
+            const p2Clickable = !!match.p1 && !!match.p2 && match.p2 !== 'BYE';
+
+            box.appendChild(createPlayerButton(
+              match.p1,
+              match.winner,
+              p1Clickable,
+              match.winner === match.p1 ? 'Venceu' : 'Clique',
+              () => pickWinner(t, side, r, m, 1)
+            ));
+
+            box.appendChild(createPlayerButton(
+              match.p2,
+              match.winner,
+              p2Clickable,
+              match.winner === match.p2 ? 'Venceu' : 'Clique',
+              () => pickWinner(t, side, r, m, 2)
+            ));
+
+            stage.appendChild(box);
+
+            const y1 = top + matchH / 2;
+
+            if(r < rounds.length - 1){
+              const nextTop = matchTop(r + 1, Math.floor(m / 2));
+              const y2 = nextTop + matchH / 2;
+
+              if(side === 'left'){
+                const x1 = x + clampedMatchW;
+                const midX = x + clampedMatchW + (colGap / 2);
+                const x2 = x + clampedMatchW + colGap;
+
+                addLine(x1, y1, midX - x1, 2);
+                addLine(midX, Math.min(y1,y2), 2, Math.abs(y2-y1) + 2);
+                addLine(midX, y2, x2 - midX, 2);
+              } else {
+                const currentLeft = x;
+                const nextX = rightStartX + (sideRounds - 1 - (r + 1)) * (clampedMatchW + colGap);
+                const nextRight = nextX + clampedMatchW;
+                const midX = nextRight + (colGap / 2);
+
+                addLine(currentLeft - (midX - currentLeft), y1, midX - currentLeft, 2);
+                addLine(midX, Math.min(y1,y2), 2, Math.abs(y2-y1) + 2);
+                addLine(nextRight, y2, midX - nextRight, 2);
+              }
+            } else {
+              const finalY = (totalHeight / 2) - 14;
+
+              if(side === 'left'){
+                const startX = x + clampedMatchW;
+                const midX = centerX + 18;
+                addLine(startX, y1, midX - startX, 2);
+                addLine(midX, Math.min(y1, finalY), 2, Math.abs(finalY - y1) + 2);
+                addLine(midX, finalY, 18, 2);
+              } else {
+                const endX = x;
+                const midX = centerX + centerWidth - 18;
+                addLine(midX - 18, finalY, 18, 2);
+                addLine(midX, Math.min(y1, finalY), 2, Math.abs(finalY - y1) + 2);
+                addLine(endX, y1, midX - endX, 2);
+              }
+            }
+          });
+        }
+      }
+
+      renderSide(t.leftRounds, 'left');
+      renderSide(t.rightRounds, 'right');
+
+      const finalW = Math.min(190, centerWidth - 10);
+
+      const finalTitle = document.createElement('div');
+      finalTitle.className = 'final-title';
+      finalTitle.textContent = 'FINAL';
+      finalTitle.style.width = finalW + 'px';
+      finalTitle.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      finalTitle.style.top = ((totalHeight / 2) - 76) + 'px';
+      stage.appendChild(finalTitle);
+
+      const finalMatch = document.createElement('div');
+      finalMatch.className = 'match';
+      finalMatch.style.width = finalW + 'px';
+      finalMatch.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      finalMatch.style.top = ((totalHeight / 2) - (matchH / 2)) + 'px';
+
+      finalMatch.appendChild(createPlayerButton(
+        t.finalMatch.p1,
+        t.finalMatch.winner,
+        !!t.finalMatch.p1 && !!t.finalMatch.p2,
+        t.finalMatch.winner === t.finalMatch.p1 ? 'Campeão' : 'Clique',
+        () => pickFinalWinner(t, 1)
+      ));
+
+      finalMatch.appendChild(createPlayerButton(
+        t.finalMatch.p2,
+        t.finalMatch.winner,
+        !!t.finalMatch.p1 && !!t.finalMatch.p2,
+        t.finalMatch.winner === t.finalMatch.p2 ? 'Campeão' : 'Clique',
+        () => pickFinalWinner(t, 2)
+      ));
+
+      stage.appendChild(finalMatch);
+
+      const champion = document.createElement('div');
+      champion.className = 'champion-box';
+      champion.style.width = finalW + 'px';
+      champion.style.left = (centerX + (centerWidth - finalW) / 2) + 'px';
+      champion.style.top = ((totalHeight / 2) + 72) + 'px';
+      champion.innerHTML = `
+        <span class="label">Campeão</span>
+        <div class="name">${t.finalMatch.winner || 'Aguardando final'}</div>
+      `;
+      stage.appendChild(champion);
+    }
+
+    generateBtn.addEventListener('click', () => {
+      const maleNames = parseNames(maleNamesEl.value);
+      const femaleNames = parseNames(femaleNamesEl.value);
+
+      if(maleNames.length === 0){
+        setStatus('Adicione pelo menos 1 nome no masculino.', true);
+        return;
+      }
+
+      if(maleNames.length > 64){
+        setStatus('O masculino aceita no máximo 64 nomes.', true);
+        return;
+      }
+
+      if(enableFemale.checked && femaleNames.length > 16){
+        setStatus('O feminino aceita no máximo 16 nomes.', true);
+        return;
+      }
+
+      maleBasePlayers = shuffle(maleNames);
+      maleTournament = createTournament(fillWithBye(maleBasePlayers, 64));
+      maleInfo.textContent = `Masculino: ${maleNames.length} participante(s)`;
+
+      if(enableFemale.checked){
+        femaleBasePlayers = shuffle(femaleNames);
+        femaleTournament = createTournament(fillWithBye(femaleBasePlayers, 16));
+        femaleInfo.textContent = `Feminino: ${femaleNames.length} participante(s)`;
+      } else {
+        femaleBasePlayers = [];
+        femaleTournament = null;
+        femaleInfo.textContent = 'Feminino: desativado';
+        if(currentView === 'female') currentView = 'male';
+      }
+
+      modeBtns.forEach(b => b.classList.remove('active'));
+      [...modeBtns].find(b => b.dataset.view === currentView)?.classList.add('active');
+
+      overlay.classList.add('hidden');
+      renderCurrent();
+      setStatus('Chaveamento gerado com sucesso.');
+      scheduleSave('geração');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    resetBtn.addEventListener('click', () => {
+      if(!maleBasePlayers.length) return;
+
+      maleTournament = createTournament(fillWithBye(maleBasePlayers, 64));
+      if(femaleBasePlayers.length){
+        femaleTournament = createTournament(fillWithBye(femaleBasePlayers, 16));
+      } else {
+        femaleTournament = null;
+      }
+      renderCurrent();
+      setStatus('Resultados resetados, mantendo os participantes atuais.');
+      scheduleSave('reset');
+    });
+
+    exampleBtn.addEventListener('click', () => {
+      maleNamesEl.value = Array.from({length:64}, (_, i) => `Jogador ${i+1}`).join('\n');
+      enableFemale.checked = true;
+      femaleField.classList.remove('hidden');
+      femaleNamesEl.value = Array.from({length:16}, (_, i) => `Jogadora ${i+1}`).join('\n');
+      setStatus('Exemplo preenchido.');
+    });
+
+    window.addEventListener('resize', () => {
+      if(getTournament()) renderCurrent();
+      applyZoom();
+    });
+
+    if(zoomOutBtn) zoomOutBtn.addEventListener('click', () => setZoom(zoomLevel - 0.1));
+    if(zoomInBtn) zoomInBtn.addEventListener('click', () => setZoom(zoomLevel + 0.1));
+    if(zoomResetBtn) zoomResetBtn.addEventListener('click', () => setZoom(1));
+
+    setZoom(1);
+    loadRemoteState();
+  </script>
+</body>
+</html>

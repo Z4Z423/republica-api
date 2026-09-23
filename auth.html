@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrar / Cadastrar • República da Praia</title>
+  <link rel="icon" type="image/png" href="assets/img/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/auth.css" />
+</head>
+<body class="auth-page-body">
+  <div class="auth-bg"></div>
+  <div class="auth-noise"></div>
+
+  <main class="auth-layout">
+    <section class="auth-hero-card">
+      <div class="auth-brand-top">
+        <img src="assets/logo-republica-da-praia.png" alt="República da Praia" class="auth-logo" />
+        <span class="auth-pill">Área do cliente</span>
+      </div>
+
+      <p class="auth-eyebrow">República da Praia</p>
+      <h1>Entre para reservar sua quadra em poucos cliques</h1>
+      <p class="auth-copy">
+        Crie sua conta para agilizar o agendamento, manter seus dados salvos e acompanhar tudo em
+        <strong>Minhas Reservas</strong>.
+      </p>
+
+      <div class="auth-benefits-grid">
+        <div class="benefit-card">
+          <div class="benefit-icon">⚡</div>
+          <div>
+            <strong>Reserva rápida</strong>
+            <p>Nome e WhatsApp preenchidos automaticamente</p>
+          </div>
+        </div>
+        <div class="benefit-card">
+          <div class="benefit-icon">📅</div>
+          <div>
+            <strong>Minhas reservas</strong>
+            <p>Consulte horários futuros da sua conta</p>
+          </div>
+        </div>
+        <div class="benefit-card">
+          <div class="benefit-icon">🔒</div>
+          <div>
+            <strong>Conta protegida</strong>
+            <p>Login por e-mail ou WhatsApp com senha</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-mini-cards">
+        <div class="mini-card">
+          <span>Esportes</span>
+          <strong>Beach Tennis • Vôlei • Futevôlei</strong>
+        </div>
+        <div class="mini-card">
+          <span>Local</span>
+          <strong>São José dos Pinhais • PR</strong>
+        </div>
+      </div>
+
+      <a href="index.html#agendamento" class="auth-back-link">← Voltar para o site</a>
+    </section>
+
+    <section class="auth-form-card" aria-label="Login e cadastro">
+      <div class="auth-card-top">
+        <h2>Entrar / Cadastrar</h2>
+        <p>Use seus dados para continuar</p>
+      </div>
+
+      <div class="auth-tabs" role="tablist" aria-label="Alternar entre entrar e cadastrar">
+        <button id="tabLogin" class="auth-tab active" type="button" role="tab" aria-selected="true">Entrar</button>
+        <button id="tabRegister" class="auth-tab" type="button" role="tab" aria-selected="false">Cadastrar</button>
+      </div>
+
+      <form id="loginForm" class="auth-form" autocomplete="on">
+        <label class="auth-label">E-mail ou WhatsApp</label>
+        <input id="loginUser" class="auth-input" type="text" placeholder="email@exemplo.com ou (41) 99999-9999" />
+
+        <label class="auth-label">Senha</label>
+        <input id="loginPass" class="auth-input" type="password" placeholder="Sua senha" />
+
+        <button id="btnLogin" class="auth-submit" type="submit">Entrar</button>
+      </form>
+
+
+
+      <div class="forgot-box">
+        <button type="button" id="btnShowReset" class="auth-link-btn">Esqueci minha senha</button>
+
+        <form id="resetForm" class="auth-form auth-reset-form" style="display:none" autocomplete="off">
+          <label class="auth-label">E-mail cadastrado</label>
+          <input id="resetEmail" class="auth-input" type="email" placeholder="email@exemplo.com" />
+
+          <label class="auth-label">WhatsApp cadastrado</label>
+          <input id="resetPhone" class="auth-input" type="text" placeholder="(41) 99999-9999" />
+
+          <label class="auth-label">Nova senha</label>
+          <input id="resetNewPassword" class="auth-input" type="password" placeholder="Mínimo 4 caracteres" />
+
+          <div class="auth-reset-actions">
+            <button class="auth-submit auth-submit-small" type="submit">Redefinir senha</button>
+            <button id="btnCancelReset" class="auth-ghost" type="button">Cancelar</button>
+          </div>
+
+          <div id="resetStatus" class="auth-status"></div>
+        </form>
+      </div>
+
+      <form id="registerForm" class="auth-form" style="display:none" autocomplete="on">
+        <label class="auth-label">Nome completo</label>
+        <input id="regName" class="auth-input" type="text" placeholder="Ex: João Silva" />
+
+        <label class="auth-label">WhatsApp</label>
+        <input id="regPhone" class="auth-input" type="text" placeholder="(41) 99999-9999" />
+
+        <label class="auth-label">E-mail</label>
+        <input id="regEmail" class="auth-input" type="email" placeholder="email@exemplo.com" />
+
+        <label class="auth-label">Senha</label>
+        <input id="regPass" class="auth-input" type="password" placeholder="Mínimo 4 caracteres" />
+
+        <button id="btnRegister" class="auth-submit" type="submit">Criar conta</button>
+      </form>
+
+      <div id="authStatus" class="auth-status" aria-live="polite"></div>
+
+      <div id="loggedBox" class="auth-logged" style="display:none">
+        <div class="auth-logged-title">Você está logado ✅</div>
+        <div id="loggedUserText" class="auth-logged-user"></div>
+        <div class="auth-logged-actions">
+          <a class="auth-ghost" href="usuario.html">Ir para Minha Conta</a>
+          <a class="auth-ghost" href="index.html">Ir para Início</a>
+          <button id="btnLogout" class="auth-ghost" type="button">Sair</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>

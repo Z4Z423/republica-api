@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+ <link rel="icon" type="image/png" href="/assets/img/favicon.png?v=3">
+<link rel="shortcut icon" href="/assets/img/favicon.png?v=3">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="preconnect" href="https://republica-api-1.onrender.com" crossorigin>
+  <link rel="dns-prefetch" href="//republica-api-1.onrender.com">
+  <title>República da Praia | Esportes de Areia</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- FX: Progress bar + ambient blobs -->
+  <div class="scroll-progress" aria-hidden="true"><div class="scroll-progress-bar" id="scrollBar"></div></div>
+  <div class="bg-blobs" aria-hidden="true">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+  </div>
+
+<div class="top-bar">
+    <div class="top-inner">
+      <div class="pill">🏖️ República da Praia – São José dos Pinhais/PR</div>
+      <div class="pill">⏰ Seg a Sex: 17h–23:30h · Sáb e Dom: 09h–19h </div>
+      <div class="pill">📱 WhatsApp: <span id="whatsLabel">(41) 99892-8333</span></div>
+    </div>
+  </div>
+
+  <header class="navbar" id="navbar">
+    <div class="nav-inner">
+      <div class="brand">
+        <div class="brand-logo">
+          <img src="assets/na praia 2.png" alt="República da Praia">
+        </div>
+
+      <nav class="links" id="navLinks">
+        <a href="#sobre">Sobre</a>
+        <a href="#modalidades">Modalidades</a>
+        <a href="#galeria">Galeria</a>
+        <a href="#valores">Valores</a>
+        <a href="#aulas">Aulas</a>
+        <a href="#contato">Contato</a>
+        <a href="#faq">FAQ</a>
+        <a href="#cardapio" onclick="event.preventDefault(); abrirCardapio();">Cardápio</a>
+        <button class="nav-cta" onclick="abrirReservaModal()">Agendar</button>
+        <span class="nav-user-greet" id="navUserGreet" style="display:none;"></span>
+        <button class="nav-auth" id="btnAuthOpen" type="button" onclick="window.location.href='auth.html'">Entrar / Cadastrar</button>
+      </nav>
+      <div class="nav-toggle" id="navToggle"><span></span><span></span><span></span></div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <div class="hero-grid">
+        <div class="hero-left">
+          <div class="badge">🏖️ <strong style="color:var(--azul)">Nova experiência de areia em SJP</strong></div>
+          <h1>Sua <span>quadra oficial</span><br/>de esportes de areia</h1>
+          <p class="hero-sub">
+            Beach Tennis, Vôlei de Praia e <strong>Futevôlei</strong> com estrutura profissional,
+            ambiente família e bar para aquele pós‑jogo perfeito.
+          </p>
+
+          <div class="hero-actions">
+            <button class="btn-outline" type="button" onclick="abrirWhatsTipo('reserva_mensal')">📅 Reserva mensal</button>
+            <button class="btn-outline" type="button" onclick="abrirWhatsTipo('duvidas')">❓ Dúvidas</button>
+            <button class="btn-outline" onclick="document.getElementById('valores').scrollIntoView({behavior:'smooth'})">Ver valores</button>
+            <button class="btn-outline" onclick="abrirCardapio()">🍟 Ver cardápio</button>
+          </div>
+
+          <div class="hero-note">
+            <div class="mini">📍 São José dos Pinhais – PR</div>
+            <div class="mini">👨‍👩‍👧‍👦 Ambiente família</div>
+            <div class="mini">💡 Iluminação noturna</div>
+            <div class="mini">🍹 Bar no local</div>
+            <div class="mini">🔥 Sexta: 1h R$ 80 • 2h R$ 150</div>
+          </div>
+          <div class="kpis reveal">
+            <div class="kpi"><b>2 quadras</b><small>disponíveis por horário</small></div>
+            <div class="kpi"><b>17h–23:30h</b><small>locação avulsa Segunda a Sexta</small></div>
+            <div class="kpi"><b>09h–19h</b><small>locação avulsa Sábados e Domingos</small></div>
+            <div class="kpi"><b>Aulas</b><small>por nível (BT/Vôlei)</small></div>
+            <div class="kpi"><b>Bar</b><small>pós‑jogo com cardápio</small></div>
+          </div>
+
+        </div>
+
+        <div class="hero-right">
+          <div class="hero-card">
+            <img src="assets/nA PRAIA_20260119_164739_0000 (1).png" alt="República da Praia - Beach Sports">
+            <div class="hc-body">
+              <div class="hc-row">
+                <div><strong style="font-size:1.02rem">Agenda & reservas</strong><div style="opacity:.85;font-size:.82rem">Horários avulsos e aulas</div></div>
+</div>
+              <div class="hc-promo">💰 <strong>Seg–Qui</strong>: 1h <strong>R$ 100</strong> • 2h <strong>R$ 180</strong>  <span style="opacity:.75">|</span> <strong>Sexta</strong>: 1h <strong>R$ 80</strong> • 2h <strong>R$ 150</strong>  <span style="opacity:.75">|</span> <strong>Sáb–Dom</strong>: 1h <strong>R$ 100</strong> • 2h <strong>R$ 180</strong> <span style="opacity:.9">· conforme agenda</span></div>
+
+              <div class="hc-grid">
+                <div class="hc-mini">🎾 Beach Tennis<strong>Turmas por nível</strong></div>
+                <div class="hc-mini">🏐 Vôlei<strong>2x/semana</strong></div>
+                <div class="hc-mini">⚽ Futevôlei<strong>sob consulta</strong></div>
+              </div>
+
+              <div class="hc-cta">
+                <button class="btn-primary" onclick="agendarAgora()">Agendar agora</button>
+                <button class="btn-outline btn-danger" id="btnCancelOpen" type="button">Minhas reservas</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="sobre" class="section-wrap">
+      <div class="title reveal">
+        <div class="badge">Quem Somos</div>
+        <h2>Sobre a República da Praia</h2>
+        <p>Esporte, convivência e experiência em um único lugar.</p>
+        <p class="hero-sub" style="max-width:880px;margin:10px auto 0;line-height:1.6;">Localizada no centro da cidade de São José dos Pinhais, a República da Praia é um ambiente esportivo acolhedor e familiar onde é realizada a prática de esportes de areia. Dentre esses esportes estão o Futevôlei, Beach Tennis (Tênis de Areia) e Vôlei de Areia. O complexo conta com duas quadras de areia nas medidas oficiais e com uma estrutura de bar e vestiário.<br/><br/>O espaço da República pode ser alugado para jogos (horários individuais) de 1 ou 2 horas.<br/>A República também conta com aulas em grupo dos esportes citados anteriormente. As turmas são montadas e niveladas de acordo com o nível de cada jogador, e os professores são treinados para atender as habilidades específicas de seus alunos.</p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card reveal">
+          <div class="body">
+            <h3>Ambiente família</h3>
+            <p>Um espaço leve, seguro e organizado — perfeito para treinar sério e também confraternizar.</p>
+            <div class="tag">✅ Seguro & acolhedor</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="body">
+            <h3>Estrutura caprichada</h3>
+            <p>Areia tratada, iluminação noturna, área de convivência e bar para o pós‑jogo.</p>
+            <div class="tag">✅ Infra completa</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="body">
+            <h3>Turmas por nível</h3>
+            <p>Da primeira aula até quem já compete: a gente encaixa você na turma ideal.</p>
+            <div class="tag">✅ Evolução real</div>
+          </div>
+        </div>
+      </div>
+    
+      <div class="wave-divider" aria-hidden="true">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+          <path class="w3" d="M0,64 C240,110 480,10 720,56 C960,102 1200,12 1440,52 L1440,120 L0,120 Z"></path>
+          <path class="w2" d="M0,70 C260,120 520,10 760,60 C1000,110 1220,30 1440,58 L1440,120 L0,120 Z"></path>
+          <path class="w1" d="M0,78 C280,132 560,20 800,66 C1040,112 1240,44 1440,66 L1440,120 L0,120 Z"></path>
+        </svg>
+      </div>
+</section>
+
+    <section id="modalidades" class="section-wrap">
+      <div class="title reveal">
+        <div class="badge">Modalidades</div>
+        <h2>Escolha seu esporte</h2>
+        <p>Treinos, jogos e locação de quadra por hora.</p>
+      </div>
+
+      <div class="grid-3">
+        <article class="card reveal mod-card">
+          <div class="media"><img src="assets/galeria/jogo.jpeg" alt="Beach Tennis"></div>
+          <div class="body mod-body">
+            <h3>Beach Tennis</h3>
+          </div>
+        </article>
+
+        <article class="card reveal mod-card">
+          <div class="media"><img src="assets/galeria/galeria-13.jpeg" alt="Vôlei de Praia"></div>
+          <div class="body mod-body">
+            <h3>Vôlei de Praia</h3>
+          </div>
+        </article>
+
+        <article class="card reveal mod-card">
+          <div class="media"><img src="assets/galeria/prof davi.jpeg" alt="Futevôlei"></div>
+          <div class="body mod-body">
+            <h3>Futevôlei</h3>
+          </div>
+        </article>
+      </div>
+
+      <div class="wave-divider" aria-hidden="true">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+          <path class="w3" d="M0,64 C240,110 480,10 720,56 C960,102 1200,12 1440,52 L1440,120 L0,120 Z"></path>
+          <path class="w2" d="M0,70 C260,120 520,10 760,60 C1000,110 1220,30 1440,58 L1440,120 L0,120 Z"></path>
+          <path class="w1" d="M0,78 C280,132 560,20 800,66 C1040,112 1240,44 1440,66 L1440,120 L0,120 Z"></path>
+        </svg>
+      </div>
+</section>
+
+    
+
+    
+    <section id="galeria">
+      <div class="title reveal">
+        <div class="badge">Fotos reais</div>
+        <h2>Galeria</h2>
+        <p>Clique em um card para abrir — e navegue pelas fotos.</p>
+      </div>
+
+      <div class="g-cards-wrap reveal">
+        <div class="g-track" id="gTrack" aria-label="Galeria de fotos em cards">
+        <button class="g-card" type="button" data-index="0" aria-label="Abrir foto 1">
+          <img loading="lazy" src="assets/galeria/galeria-09.jpeg" alt="Galeria 1 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Bar & Atendimento</div>
+            <div class="g-chip">📸 1/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="1" aria-label="Abrir foto 2">
+          <img loading="lazy" src="assets/galeria/galeria-08.jpeg" alt="Galeria 2 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Geladeiras & Bebidas</div>
+            <div class="g-chip">📸 2/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="2" aria-label="Abrir foto 3">
+          <img loading="lazy" src="assets/galeria/galeria-07.jpeg" alt="Galeria 3 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Snacks & Doces</div>
+            <div class="g-chip">📸 3/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="3" aria-label="Abrir foto 4">
+          <img loading="lazy" src="assets/galeria/galeria-05.jpeg" alt="Galeria 4 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Área de convivência</div>
+            <div class="g-chip">📸 4/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="4" aria-label="Abrir foto 5">
+          <img loading="lazy" src="assets/galeria/galeria-02.jpeg" alt="Galeria 5 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Área de convivência (2)</div>
+            <div class="g-chip">📸 5/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="6" aria-label="Abrir foto 6">
+          <img loading="lazy" src="assets/galeria/galeria-03.jpeg" alt="Galeria 6 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">TV & Pia</div>
+            <div class="g-chip">📸 6/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="7" aria-label="Abrir foto 8">
+          <img loading="lazy" src="assets/galeria/galeria-04.jpeg" alt="Galeria 8 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Churrasqueira</div>
+            <div class="g-chip">📸 8/9</div>
+          </div>
+        </button>
+        <button class="g-card" type="button" data-index="8" aria-label="Abrir foto 9">
+          <img loading="lazy" src="assets/galeria/galeria-09.jpeg" alt="Galeria 9 — República da Praia">
+          <div class="g-cap">
+            <div class="g-title">Área externa</div>
+            <div class="g-chip">📸 9/9</div>
+          </div>
+        </button>
+        </div>
+        <div class="g-hint">👉 <b>Arraste</b> para o lado • <b>Clique</b> para abrir</div>
+      </div>
+
+      <div class="gallery-note reveal">
+        *Dica: no visor aberto, use as setas do teclado (← →) ou arraste no celular.
+      </div>
+    </section>
+
+    <!-- Overlay Galeria (navegação) -->
+    <div class="g-overlay" id="gOverlay" aria-hidden="true">
+      <div class="g-overlay-backdrop" id="gOverlayBackdrop"></div>
+      <div class="g-overlay-card" role="dialog" aria-modal="true" aria-label="Galeria de fotos">
+        <button class="g-overlay-close" type="button" id="gClose" aria-label="Fechar">✕</button>
+        <div class="g-overlay-stage">
+          <button class="g-nav prev" type="button" id="gPrev" aria-label="Anterior">‹</button>
+          <img id="gOverlayImg" alt="Imagem ampliada">
+          <button class="g-nav next" type="button" id="gNext" aria-label="Próxima">›</button>
+        </div>
+        <div class="g-overlay-footer">
+          <div class="g-counter" id="gCounter">1/10</div>
+          <div class="g-thumbs" id="gThumbs" aria-label="Miniaturas"></div>
+        </div>
+      </div>
+    </div>
+    <section id="valores">
+  <div class="title reveal">
+    <div class="badge">Reservas</div>
+    <h2>Locação avulsa</h2>
+    <p>Clique em <strong>Reservar agora</strong> para escolher dia e horário. Temos <strong>2 quadras</strong> disponíveis por faixa de horário.</p>
+  </div>
+
+  <div style="max-width:560px; margin: 0 auto 24px;">
+    <div class="card reveal">
+      <div class="media"><img src="assets/galeria/galeria-11.jpeg" alt="Locação avulsa"></div>
+      <div class="body">
+        <h3>Locação avulsa</h3>
+        <p>Reserva de quadra por hora (somente avulso). <strong>Horários:</strong> Seg–Sex 17:00–23:00 • Sáb–Dom 09:00–19:00.</p>
+        <div class="tag">
+          <strong>Seg–Qui</strong> 100 / 180 •
+          <strong>Sexta</strong> 80 / 150 •
+          <strong>Sáb–Dom</strong> 100 / 180 •
+        </div>
+        <ul class="ul">
+          <li><span>✔</span> Você reserva sozinho(a) pelo app</li>
+          <li><span>✔</span> Confirmação e disponibilidade na hora</li>
+          <li><span>✔</span> Ideal para rachão, jogos e grupos</li>
+        </ul>
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-primary" onclick="abrirReservaModal()">✅ Reservar agora</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="val-grid">
+        <div class="price-box reveal">
+          <h3>Horários avulsos</h3>
+          <div class="promo-friday">
+            <div class="pf-left">
+              <div class="pf-title">🎉 Sexta com desconto</div>
+              <div class="pf-sub">Promoção válida <strong>todas as sextas</strong> na locação avulsa.</div>
+            </div>
+            <div class="pf-right">
+              <div class="pf-price">
+                <span>1h</span>
+                <strong>R$ 80</strong>
+                <small>de R$ 100</small>
+              </div>
+              <div class="pf-price">
+                <span>2h</span>
+                <strong>R$ 150</strong>
+                <small>de R$ 180</small>
+              </div>
+            </div>
+          </div>
+
+          
+          <div class="price-row">
+            <span>Segunda a Quinta</span>
+            <div style="text-align:right">
+              <strong>1h R$ 100,00 • 2h R$ 180,00</strong>
+            </div>
+          </div>
+
+          <div class="price-row">
+            <span>Sextas com desconto</span>
+            <div style="text-align:right">
+              <strong>1h R$ 80,00 • 2h R$ 150,00</strong>
+            </div>
+          </div>
+
+          <div class="price-row">
+            <span>Sábados e Domingos</span>
+            <div style="text-align:right; line-height:1.2">
+              <strong>1h R$ 100,00 • 2h R$ 180,00</strong><br>
+            </div>
+          </div>
+
+
+          <div style="margin-top:14px; font-weight:800; color:var(--azul-escuro);">Horários</div>
+          <div class="slots">
+            <div class="slot">17:00–18:00</div>
+            <div class="slot">18:00–19:00</div>
+            <div class="slot">19:00–20:00</div>
+            <div class="slot">20:00–21:00</div>
+            <div class="slot">21:00–22:00</div>
+            <div class="slot">22:00–23:00</div>
+          </div>
+          <div style="margin-top:14px; font-weight:800; color:var(--azul-escuro);">Horários Sábados e Domingos</div>
+          <div class="slots">
+            <div class="slot">09:00–10:00</div>
+            <div class="slot">10:00–11:00</div>
+            <div class="slot">11:00–12:00</div>
+            <div class="slot">12:00–13:00</div>
+            <div class="slot">13:00–14:00</div>
+            <div class="slot">14:00–15:00</div>
+            <div class="slot">15:00–16:00</div>
+            <div class="slot">16:00–17:00</div>
+            <div class="slot">17:00–18:00</div>
+            <div class="slot">18:00–19:00</div>
+          </div>
+          <div style="margin-top:18px; font-weight:800; color:var(--azul-escuro);">Mensal</div>
+          <div class="price-row"><span>1 Hora/sem</span><strong>R$ 350,00</strong></div>
+          <div class="price-row"><span>2 Horas/sem</span><strong>R$ 650,00</strong></div>
+          
+  <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+           
+          </div>
+        </div>
+
+        <div class="map reveal">
+          <iframe loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+            src="about:blank" data-map-embed="1" id="mapFrame"></iframe>
+        
+          <div class="map-actions">
+            <button class="btn-outline btn-small" type="button" onclick="copiarEndereco()">📍 Copiar endereço</button>
+            <a class="btn-outline btn-small" href="#" id="mapsOpenLink" target="_blank" rel="noopener">🗺️ Abrir no Google Maps</a>
+            <button class="btn-primary btn-small" type="button" onclick="abrirRota()">🚗 Traçar rota</button>
+          </div>
+</div>
+      </div>
+    </section>
+
+    
+    
+
+
+
+<section id="aulas" class="section-wrap">
+  <div class="title reveal">
+    <div class="badge">Aulas</div>
+    <h2>Aulas profissionais por modalidade</h2>
+    <p>Turmas organizadas por nível, treino técnico e jogo orientado. Para confirmar vagas e horários, chame no WhatsApp.</p>
+  </div>
+
+  <div class="grid-3">
+    <div class="card reveal">
+      <div class="media"><img src="assets/galeria/beach.jpeg" alt="Aulas Beach Tennis"></div>
+      <div class="body">
+        <h3>🎾 <span data-class-title="beach">Beach Tennis</span></h3>
+        <div class="class-schedules" data-class-schedules="beach"><p><strong>Prof. Ricardo Antunes</strong><br/>Dias: <strong>Segunda e Quarta</strong> • a partir das <strong>18h</strong><br/>• Duração das aulas <strong>1h</strong></p></div>
+
+        <div class="plans" data-class-plans="beach" aria-label="Planos e valores (Beach Tennis)">
+          <div class="plans-title">Planos mensais</div>
+          <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">1x/semana</span></div>
+            <strong class="plan-price">R$ 225,00</strong>
+          </div>
+          <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">2x/semana</span></div>
+            <strong class="plan-price">R$ 365,00</strong>
+          </div>
+          <div class="plan-note">Valores por pessoa • Vagas e horários confirmados no WhatsApp</div>
+        </div>
+
+        <ul class="ul">
+          <li><span>✔</span> Turmas por nível (iniciante • intermediário • avançado)</li>
+          <li><span>✔</span> Aquecimento + fundamentos + jogo orientado</li>
+          <li><span>✔</span> Evolução real com correções e feedback</li>
+        </ul>
+
+        <div style="margin-top:12px;">
+          <button class="btn-primary" type="button" onclick="abrirWhatsTipo('aula_beach')">💬Ver Horários</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card reveal">
+      <div class="media"><img src="assets/galeria/aula de volei.jpeg" alt="Aulas Vôlei de Praia"></div>
+      <div class="body">
+        <h3>🏐 <span data-class-title="volei">Vôlei de Praia</span></h3>
+        <div class="class-schedules" data-class-schedules="volei"><p><strong>Prof. Leo</strong><br/>Dias: <strong>Segunda e Quinta</strong> • a partir das <strong>19h</strong></p><p><strong>Prof. Goran</strong><br/>Dias: <strong>Terça e Sexta</strong> • a partir das <strong>19h</strong><br/>• Duração das aulas <strong>1h</strong></p></div>
+
+      <div class="plans" data-class-plans="volei" aria-label="Plano e valores (Vôlei de Praia)">
+          <div class="plans-title">Plano mensal</div>
+          <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">1x/semana</span></div>
+            <strong class="plan-price">R$ 190,00</strong>
+          </div>
+         
+          <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">2x/semana</span></div>
+            <strong class="plan-price">R$ 240,00</strong>
+            </div>
+          
+            <div class="plan-row">
+        <div class="plan-left"><span class="plan-pill">3x/semana</span></div>
+            <strong class="plan-price">R$ 350,00</strong>
+          </div>
+       
+          <div class="plan-row">
+           <div class="plan-left"><span class="plan-pill">4x/semana</span></div>
+            <strong class="plan-price">R$ 460,00</strong>
+          </div>
+
+          <div class="plan-note">Horários e vagas: confirmar no WhatsApp</div>
+        </div>
+
+        <ul class="ul">
+          <li><span>✔</span> Fundamentos (toque, manchete, saque e ataque)</li>
+          <li><span>✔</span> Ritmo de treino + jogo com orientação</li>
+          <li><span>✔</span> Turmas mistas por nível</li>
+        </ul>
+
+        <div style="margin-top:12px;">
+          <button class="btn-outline" type="button" onclick="abrirWhatsTipo('aula_volei')">💬Ver horários</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card reveal">
+      <div class="media"><img src="assets/galeria/futevolei.jpeg" alt="Aulas Futevôlei"></div>
+      <div class="body">
+        <h3>⚽ <span data-class-title="futevolei">Futevôlei</span></h3>
+        <div class="class-schedules" data-class-schedules="futevolei"><p><strong>Prof. Davi (Fixo)</strong><br/>Dias e horários: <strong>a confirmar</strong></p><p><strong>Prof. Lapiseira (2x/mês)</strong><br/>Dias: <strong>Terça e Quinta</strong> • a partir das <strong>18:30</strong><br/>• Duração das aulas <strong>1h</strong></p></div>
+
+        <div class="plans" data-class-plans="futevolei" aria-label="Turmas e informações (Futevôlei)">
+          <div class="plans-title">Turmas e horários</div>
+        <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">1x/semana</span></div>
+            <strong class="plan-price">R$ 150,00</strong>
+          </div>
+          <div class="plan-row">
+            <div class="plan-left"><span class="plan-pill">2x/semana</span></div>
+            <strong class="plan-price">R$ 220,00</strong>
+          </div>
+          <div class="plan-note">Chame no WhatsApp para horários e valores</div>
+        </div>
+
+        <ul class="ul">
+          <li><span>✔</span> Treino técnico (domínio, ataque, defesa)</li>
+          <li><span>✔</span> Condicionamento e explosão na areia</li>
+          <li><span>✔</span> Treino + jogo (rachão) em horários disponíveis</li>
+        </ul>
+
+        <div style="margin-top:12px;">
+          <button class="btn-primary" type="button" onclick="abrirWhatsTipo('aula_futevolei')">💬Ver Horários</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-3" style="margin-top:22px;">
+    <div class="card reveal">
+      <div class="body">
+        <h3>📚 Como funciona</h3>
+        <p><strong>1)</strong> As turmas são montadas de acordo com a quantidade de pessoas específicas para cada esporte (<strong>4 alunos</strong> no Beach Tennis, <strong>10 alunos</strong> no Vôlei e <strong>10 alunos</strong> no Futevôlei).<br/><strong>2)</strong> Entre em contato conosco pelo WhatsApp Oficial da República para informações de dias e horários disponíveis.<br/><strong>3)</strong> A equipe indica a turma ideal baseado no seu nivelamento (Inicial ou Intermediário).<br/><strong>4)</strong> Você realiza a inscrição e inicia as aulas.</p>
+     
+      </div>
+    </div>
+
+    <div class="card reveal">
+      <div class="body">
+        <h3>🎒 O que levar</h3>
+        <p>Roupa de treino leve, toalha e água. Se tiver raquete (Beach Tennis), pode trazer — se não, a gente empresta sem custo.</p>
+        
+      </div>
+    </div>
+
+    <div class="card reveal">
+      <div class="body">
+        <h3>⚠️ Regras da casa</h3>
+        <p>Chegar com antecedência, respeitar horários e cuidar do espaço. Cancelamentos/reposições: combine a política oficial com a equipe no WhatsApp.</p>
+      </div>
+    </div>
+  </div>
+
+      <div class="wave-divider" aria-hidden="true">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+          <path class="w3" d="M0,64 C240,110 480,10 720,56 C960,102 1200,12 1440,52 L1440,120 L0,120 Z"></path>
+          <path class="w2" d="M0,70 C260,120 520,10 760,60 C1000,110 1220,30 1440,58 L1440,120 L0,120 Z"></path>
+          <path class="w1" d="M0,78 C280,132 560,20 800,66 C1040,112 1240,44 1440,66 L1440,120 L0,120 Z"></path>
+        </svg>
+      </div>
+</section>
+
+    
+    <section id="faq">
+      <div class="title reveal">
+        <div class="badge">FAQ</div>
+        <h2>Dúvidas rápidas</h2>
+        <p>Respostas diretas pra você reservar e chegar pra jogar.</p>
+      </div>
+
+      <div class="faq">
+<div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>Como reservo a quadra?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a">Você pode realizar a reserva diretamente pelo nosso <strong>site</strong> (Agendar) ou pelo <strong>WhatsApp oficial</strong>.</div>
+        </div>
+
+        <div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>Quantas quadras tem por horário?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a">São <strong>2 quadras</strong> no complexo.</div>
+        </div>
+
+        <div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>As quadras são cobertas?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a"> Não, mas em breve <strong>teremos quadra coberta</strong>.</div>
+        </div>
+
+        <div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>Posso ir sem raquete?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a">Sim! Emprestamos <strong>raquetes</strong> para Beach Tennis. Para Vôlei e Futevôlei, emprestamos <strong>bolas</strong>.</div>
+        </div>
+
+        <div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>Tem bar no local?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a">Sim. Vendemos bebidas não‑alcoólicas e bebidas alcoólicas (<strong>somente para maiores de 18 anos</strong>).</div>
+        </div>
+
+        <div class="faq-item reveal">
+          <button class="faq-q" type="button">
+            <span>Posso reservar o espaço para eventos?</span>
+            <span class="chev">⌄</span>
+          </button>
+          <div class="faq-a">A partir de <strong>25 pessoas</strong>, o espaço pode ser reservado (podemos fechar a quadra só para um grupo) e é cobrado <strong>R$ 20,00 por pessoa</strong> (total de <strong>R$ 500,00</strong>). Alimentos de fora podem ser trazidos, mas pedimos que as bebidas sejam consumidas no bar. Nessa modalidade, o(a) aniversariante não paga o valor individual. Até 25 pessoas, recomenda‑se entrar em contato via WhatsApp para maiores informações.</div>
+        </div>
+      </div>
+    </section>
+
+
+    <section id="contato">
+      <div class="title reveal">
+        <div class="badge">Contato</div>
+        <h2>Fale com a equipe</h2>
+        <p>Chame no WhatsApp para reservar quadra, entrar em turma ou organizar um evento.</p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card reveal">
+          <div class="body">
+            <h3>📍 Endereço</h3>
+            <p id="addressText">R. Mal. Deodoro da Fonseca, 1023 - Centro, São José dos Pinhais - PR, 83005-350</p>
+            <div class="tag">Fácil acesso</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="body">
+            <h3>📸 Instagram</h3>
+           <p> <button class="mini-float ig" onclick="abrirInstagram()"><span style="font-size:1.15rem"></span>@napraiasjp</button></p>
+           <p>ㅤㅤㅤㅤㅤㅤ</p> 
+           <div class="tag">Novidades e agenda</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="body">
+            <h3>📱 WhatsApp</h3>
+            <p>Atendimento rápido para reservas e informações.</p>
+            <div style="margin-top:12px;">
+              <button class="btn-primary" onclick="abrirWhats()">💬 Falar agora</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- RESERVA (LOCAÇÃO AVULSA) MODAL -->
+<div id="reservaModal" class="modal" aria-hidden="true">
+  <div class="cardapio-backdrop" onclick="fecharReservaModal()"></div>
+  <div class="panel booking-panel" role="dialog" aria-modal="true" aria-label="Reserva de quadra">
+    <div class="panel-head">
+      <div>
+        <h3>Reserva de quadra — Locação avulsa</h3>
+        <div style="opacity:.85; font-size:.82rem">Escolha a data, duração e um horário disponível (2 quadras por horário).</div>
+      </div>
+      <button class="x" type="button" onclick="fecharReservaModal()">✕</button>
+    </div>
+
+    <div class="panel-body">
+      <div class="booking-grid">
+        <div class="booking-card">
+          <div class="booking-row">
+            <label class="booking-label">Data</label>
+            <input id="reservaData" type="date" class="booking-input" />
+          </div>
+
+          <div class="booking-row">
+            <label class="booking-label">Duração</label>
+            <select id="reservaDuracao" class="booking-input">
+              <option value="60">1 hora</option>
+              <option value="120">2 horas</option>
+            </select>
+          </div>
+
+          <div class="booking-row">
+            <div class="booking-note">
+              <div><strong>Horários base:</strong> Seg–Sex 17:00–23:00 • Sáb–Dom 09:00–19:00</div>
+              <div class="booking-mini">Seg–Qui: 100 / 180 • Sexta: 80 / 150 • Sáb–Dom: 100 / 180 </div>
+            </div>
+          </div>
+
+          <div class="booking-row">
+            <button class="btn-primary" type="button" id="btnVerHorarios" data-action="ver-horarios" onclick="carregarSlots()">Ver horários</button>
+            <button class="btn-outline" type="button" onclick="abrirWhatsReserva()">Falar no WhatsApp</button>
+          </div>
+        </div>
+
+        <div class="booking-card">
+          <div class="booking-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div>
+              <div style="font-weight:700;color:var(--azul-escuro)">Horários disponíveis</div>
+              <div style="font-size:.82rem;color:var(--cinza)" id="slotsHint">Selecione a data e clique em “Ver horários”.</div>
+            </div>
+            <div id="slotsStatus" class="booking-status"></div>
+          </div>
+
+          <div id="slotsContainer" class="slots"></div>
+
+          <div id="reservaForm" class="reserva-form" style="display:none;">
+            <div class="divider"></div>
+            <div id="authRequiredBox" class="booking-note" style="margin-top:10px; display:none;">
+              <div><strong>Login obrigatório</strong> para confirmar a reserva.</div>
+              <div class="booking-mini">Crie sua conta uma vez e depois suas reservas ficam mais rápidas ✅</div>
+              <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn-primary" type="button" onclick="abrirAuthModal('register')">Entrar / Cadastrar</button>
+              </div>
+            </div>
+            <div id="authUserBox" class="booking-note" style="margin-top:10px; display:none;">
+              <div><strong>Conta:</strong> <span id="authUserInfo"></span></div>
+              <div class="booking-mini">Os dados da reserva serão preenchidos automaticamente pela sua conta.</div>
+              <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn-outline" type="button" onclick="abrirAuthModal('login')">Trocar conta</button>
+                <button class="btn-outline" type="button" onclick="logoutConta()">Sair</button>
+              </div>
+            </div>
+            <div class="cancel-actions">
+              <button class="btn-primary" type="button" onclick="confirmarReserva()">Confirmar reserva</button>
+              <button class="btn-outline" type="button" onclick="limparSelecao()">Trocar horário</button>
+            </div>
+            <div id="reservaResultado" class="reserva-result"></div>
+          </div>
+        </div>
+        
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- CANCELAMENTO MODAL -->
+<div id="cancelModal" class="modal" aria-hidden="true" style="display:none">
+  <div class="cardapio-backdrop" onclick="fecharCancelModal()"></div>
+  <div class="panel booking-panel" role="dialog" aria-modal="true" aria-label="Minhas reservas">
+    <div class="panel-head">
+      <div>
+        <h3>MINHAS RESERVAS</h3>
+        <div style="opacity:.85; font-size:.82rem">Digite seu WhatsApp e veja suas reservas futuras.</div>
+      </div>
+      <button class="x" type="button" onclick="fecharCancelModal()">✕</button>
+    </div>
+
+    <div class="panel-body">
+      <div class="booking-grid" style="grid-template-columns: minmax(0,1fr);">
+        <div class="booking-card">
+          <div class="booking-row">
+            <label class="booking-label">Seu WhatsApp</label>
+            <input id="cancelPhone" class="booking-input" placeholder="(41) 99999-9999" />
+          </div>
+
+          <div class="cancel-actions">
+            <button class="btn-outline" id="btnCancelLookup" type="button">Buscar minhas reservas</button>
+                      </div>
+
+          <div class="cancel-help">
+            <strong>Como funciona:</strong> você digita o WhatsApp usado na reserva. O sistema lista as reservas futuras desse número. (Somente reservas feitas com este telefone.)
+          </div>
+
+          <div id="cancelStatus" class="booking-status" style="margin-top:10px;"></div>
+          <div id="cancelList" class="cancel-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- AUTH MODAL -->
+<div id="authModal" class="modal" aria-hidden="true" style="display:none">
+  <div class="cardapio-backdrop" onclick="fecharAuthModal()"></div>
+  <div class="panel booking-panel" role="dialog" aria-modal="true" aria-label="Entrar ou cadastrar">
+    <div class="panel-head">
+      <div><h3>ENTRAR / CADASTRAR</h3><div style="opacity:.85; font-size:.82rem">Crie sua conta para reservar mais rápido.</div></div>
+      <button class="x" type="button" onclick="fecharAuthModal()">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="booking-grid" style="grid-template-columns:minmax(0,1fr);">
+        <div class="booking-card">
+          <div class="cancel-actions" style="margin-bottom:10px;">
+            <button class="btn-outline" id="authTabLogin" type="button">Entrar</button>
+            <button class="btn-outline" id="authTabRegister" type="button">Cadastrar</button>
+          </div>
+          <div id="authLoginForm">
+            <div class="booking-row"><label class="booking-label">E-mail ou WhatsApp</label><input id="authLoginUser" class="booking-input" placeholder="email@exemplo.com ou (41) 99999-9999" /></div>
+            <div class="booking-row"><label class="booking-label">Senha</label><input id="authLoginPass" type="password" class="booking-input" placeholder="Sua senha" /></div>
+            <div class="cancel-actions"><button class="btn-primary" id="btnDoLogin" type="button">Entrar</button></div>
+          </div>
+          <div id="authRegisterForm" style="display:none;">
+            <div class="booking-row"><label class="booking-label">Nome completo</label><input id="authRegName" class="booking-input" placeholder="Ex: João Silva" /></div>
+            <div class="booking-row"><label class="booking-label">WhatsApp</label><input id="authRegPhone" class="booking-input" placeholder="(41) 99999-9999" /></div>
+            <div class="booking-row"><label class="booking-label">E-mail</label><input id="authRegEmail" type="email" class="booking-input" placeholder="email@exemplo.com" /></div>
+            <div class="booking-row"><label class="booking-label">Senha</label><input id="authRegPass" type="password" class="booking-input" placeholder="Mínimo 4 caracteres" /></div>
+            <div class="cancel-actions"><button class="btn-primary" id="btnDoRegister" type="button">Criar conta</button></div>
+          </div>
+          <div id="authStatus" class="booking-status" style="margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARDÁPIO MODAL -->
+  <div id="cardapioModal" class="modal" aria-hidden="true">
+    <div class="cardapio-backdrop"></div>
+    <div class="panel" role="dialog" aria-modal="true" aria-label="Cardápio">
+      <div class="panel-head">
+        <div>
+          <h3>Cardápio do Bar</h3>
+          <div style="opacity:.85; font-size:.82rem">Clique em uma categoria ou use a busca</div>
+        </div>
+        <button class="x" type="button" onclick="fecharCardapio()">✕</button>
+      </div>
+
+      <div class="panel-body">
+        <div class="tools">
+          <input id="cardapioBusca" type="text" placeholder="Buscar no cardápio..." oninput="buscarCardapio(this.value)">
+          <button class="chip active" type="button" data-cat="all" onclick="filtrarCategoria(this)">Tudo</button>
+        </div>
+
+        <div class="chips" id="chips"><button class="chip" type="button" data-cat="Cervejas" onclick="filtrarCategoria(this)">Cervejas</button><button class="chip" type="button" data-cat="Bebidas" onclick="filtrarCategoria(this)">Bebidas</button><button class="chip" type="button" data-cat="Energéticos" onclick="filtrarCategoria(this)">Energéticos</button><button class="chip" type="button" data-cat="Isotônicos" onclick="filtrarCategoria(this)">Isotônicos</button><button class="chip" type="button" data-cat="Doces" onclick="filtrarCategoria(this)">Doces</button><button class="chip" type="button" data-cat="Balas e Gomas" onclick="filtrarCategoria(this)">Balas e Gomas</button><button class="chip" type="button" data-cat="Salgados" onclick="filtrarCategoria(this)">Salgados</button><button class="chip" type="button" data-cat="Salgadinhos" onclick="filtrarCategoria(this)">Salgadinhos</button></div>
+
+        <div class="menu-wrap" id="menuWrap">
+          
+      <div class="menu-group" data-group="Cervejas">
+        <h4>Cervejas</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Amstel litrão</strong></div><span class="badge">1 Litro</span></div><div class="menu-item"><div class="mi-left"><strong>Brahma litrão</strong></div><span class="badge">1 Litro</span></div><div class="menu-item"><div class="mi-left"><strong>Heineken 600ml</strong></div><span class="badge">600ml</span></div><div class="menu-item"><div class="mi-left"><strong>Stella 600ml</strong></div><span class="badge">600ml</span></div><div class="menu-item"><div class="mi-left"><strong>Original 600ml</strong></div><span class="badge">600ml</span></div><div class="menu-item"><div class="mi-left"><strong>Heineken Long Neck</strong></div><span class="badge">Long Neck</span></div><div class="menu-item"><div class="mi-left"><strong>Corona Long Neck</strong></div><span class="badge">Long Neck</span></div><div class="menu-item"><div class="mi-left"><strong>Stella Long Neck</strong></div><span class="badge">Long Neck</span></div><div class="menu-item"><div class="mi-left"><strong>Stella Sem Gluten Long Neck</strong></div><span class="badge">Long Neck</span></div><div class="menu-item"><div class="mi-left"><strong>Budweiser Zero Long Neck</strong></div><span class="badge">Long Neck</span></div><div class="menu-item"><div class="mi-left"><strong>Heineken Zero Long Neck</strong></div><span class="badge">Long Neck</span></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Bebidas">
+        <h4>Bebidas</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Água com gás ml</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Água sem gás 500 ml</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Água com gás 1,5L</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Água sem gás 1,5L</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Água de coco 330ml</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chá pêssego</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chá limão</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chá açaí</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Coca-Cola lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Coca Zero lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Coca-Cola 2L</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Fanta lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Guaraná lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Guaraná zero lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Guaraná 2L</strong></div></div><div class="menu-item"><div class="mi-left"><strong>H2O limão</strong></div></div><div class="menu-item"><div class="mi-left"><strong>H2O limoneto</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Sprite lata</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Garrafa Uva</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Lata uva</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Lata maracujá</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Lata manga</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Lata goiaba</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Suco Lata pêssego</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Energéticos">
+        <h4>Energéticos</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Red Bull tradicional</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Red Bull zero</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Red Bull melancia</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Red Bull tropical</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Monster tradicional</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Monster Tradicional zero</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Monster azul zero</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Monster branco zero</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Monster Mango Loco</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Isotônicos">
+        <h4>Isotônicos</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Gatorade Morango c Maracujá</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Gatorade Laranja</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Gatorade maracujá</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Gatorade tangerina</strong></div></div><div class="menu-item"><div class="mi-left"><strong>PowerRade Frutas tropicais</strong></div></div><div class="menu-item"><div class="mi-left"><strong>PowerRade Limao</strong></div></div><div class="menu-item"><div class="mi-left"><strong>PowerRade Uva</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Doces">
+        <h4>Doces</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Chocolate ao leite</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chocolate branco</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chocolate Diamante Negro</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chocolate FiveStar</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Chocolate Bis</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Paçocão</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Doce de amendoim</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Bubbaloo</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Ouro Branco</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Sonho de Valsa</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Balas e Gomas">
+        <h4>Balas e Gomas</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Trident</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Halls</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Salgados">
+        <h4>Salgados</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Biscoito Polvinho</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgado Kro</strong></div></div>
+        </div>
+      </div>
+    
+
+      <div class="menu-group" data-group="Salgadinhos">
+        <h4>Salgadinhos</h4>
+        <div class="menu-list">
+          <div class="menu-item"><div class="mi-left"><strong>Salgadinho Ruffles Grande 270 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Ruffles Tubo 100 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Cheetos Parmesão 35 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Cheetos Requeijão 40 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Doritos 120 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Doritos 32 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Amendoim Japonês 145 gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Fandangos 160 Gramas</strong></div></div><div class="menu-item"><div class="mi-left"><strong>Salgadinho Piraquê Queijinho 100 Gramas</strong></div></div>
+        </div>
+      </div>
+    
+        </div>
+      </div>
+    </div>
+  </div>
+
+ <footer>
+  <div class="footer-inner">
+    <span>© 2026 – <strong style="color:#e5e7eb">República da Praia</strong> • Esportes de Areia – São José dos Pinhais – PR</span>
+
+    <span>
+      Feito para reservas rápidas via WhatsApp • Desenvolvido por
+      <a href="#" class="dev-brand" aria-label="Desenvolvido por Henrique Zavaski">Henrique Zavaski </a>
+    </span>
+  </div>
+</footer>
+
+  
+  <div class="float-stack" aria-label="Ações rápidas">
+    <button class="mini-float primary" onclick="abrirWhats()"><span style="font-size:1.15rem">💬</span> WhatsApp</button>
+    <button class="mini-float ig" onclick="abrirInstagram()"><span style="font-size:1.15rem">📸</span> Instagram</button>
+
+  </div>
+
+  <div class="mobile-bar" aria-label="Barra rápida">
+    <div class="mb-grid">
+      <button class="mb-btn w" type="button" onclick="abrirWhats()">Whats</button>
+     
+      <button class="mb-btn g" type="button" onclick="abrirReservaModal()">Agendar</button>
+    </div>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+  <script src="js/app.js?v=20260429-warmup" defer></script>
+  <script src="js/classes.js?v=20260923" defer></script>
+</body>
+</html>

@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin • DRE Gerencial + Analítica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#07131f;
+      --bg2:#0c1d2d;
+      --card:rgba(10,22,35,.88);
+      --line:rgba(255,255,255,.08);
+      --text:#eef6ff;
+      --muted:#9cb3c9;
+      --primary:#11c5d9;
+      --primary-2:#00e0b8;
+      --danger:#ff6b6b;
+      --warning:#ffca5c;
+      --good:#34d399;
+      --shadow:0 20px 60px rgba(0,0,0,.35);
+      --radius:24px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{
+      min-height:100vh;
+      font-family:'Poppins',sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(17,197,217,.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(0,224,184,.12), transparent 24%),
+        linear-gradient(160deg, var(--bg), var(--bg2));
+    }
+    .wrap{width:min(1380px, calc(100% - 32px));margin:0 auto;padding:28px 0 60px}
+    .topbar{display:flex;gap:18px;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:16px}
+    .brand img{width:72px;height:72px;object-fit:contain;border-radius:18px;background:rgba(255,255,255,.05);padding:10px;border:1px solid var(--line)}
+    .eyebrow{margin:0 0 6px;font-size:.82rem;letter-spacing:.18em;text-transform:uppercase;color:var(--primary-2);font-weight:700}
+    h1{margin:0;font-size:clamp(1.9rem,4vw,3rem);line-height:1.05}
+    .sub{margin:8px 0 0;color:var(--muted);max-width:840px}
+    .actions{display:flex;gap:12px;flex-wrap:wrap}
+    .btn{border:none;cursor:pointer;border-radius:16px;padding:14px 18px;font:600 .96rem 'Poppins',sans-serif;transition:.2s ease;text-decoration:none;display:inline-flex;align-items:center;gap:10px}
+    .btn:hover{transform:translateY(-1px)}
+    .btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#032533;box-shadow:0 12px 30px rgba(0,224,184,.18)}
+    .btn-ghost{background:rgba(255,255,255,.05);color:var(--text);border:1px solid var(--line)}
+    .btn-danger{background:rgba(255,107,107,.12);color:#ffd1d1;border:1px solid rgba(255,107,107,.24)}
+    .hero,.card{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));border:1px solid var(--line);border-radius:32px;box-shadow:var(--shadow)}
+    .hero{padding:26px;margin-bottom:22px}
+    .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:20px}
+    .stat{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px}
+    .stat span{display:block;color:var(--muted);font-size:.88rem;margin-bottom:10px}
+    .stat strong{font-size:1.55rem;line-height:1.1;display:block}
+    .stat small{display:block;margin-top:8px;color:var(--muted)}
+    .layout{display:grid;grid-template-columns:430px 1fr;gap:22px;align-items:start}
+    .card{padding:22px;backdrop-filter: blur(12px)}
+    .card h2{margin:0 0 8px;font-size:1.35rem}
+    .muted{color:var(--muted);margin:0 0 18px;font-size:.94rem}
+    .form-grid{display:grid;gap:14px}
+    .field label{display:block;margin-bottom:8px;font-weight:600;font-size:.92rem}
+    .field input,.field select,.field textarea{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px 15px;color:var(--text);font:500 .95rem 'Poppins',sans-serif;outline:none}
+    .field select, .inline-input select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:#11263a;color:#eef6ff}
+    .field select option, .inline-input select option{background:#11263a;color:#eef6ff}
+    .field select optgroup, .inline-input select optgroup{background:#0d2133;color:#11c5d9;font-weight:700}
+    .field textarea{min-height:88px;resize:vertical}
+    .field input:focus,.field select:focus,.field textarea:focus{border-color:rgba(17,197,217,.8);box-shadow:0 0 0 4px rgba(17,197,217,.10)}
+    .row-2,.row-3{display:grid;gap:14px}
+    .row-2{grid-template-columns:1fr 1fr}
+    .row-3{grid-template-columns:1fr 1fr 1fr}
+    .status{margin-top:14px;min-height:24px;color:var(--muted);font-size:.92rem}
+    .toolbar{display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between;margin-bottom:18px}
+    .toolbar-left,.toolbar-right{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .pill{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);font-size:.88rem}
+    .inline-input{min-width:220px}
+    .inline-input input,.inline-input select{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:14px;padding:12px 14px;color:var(--text);font:500 .92rem 'Poppins',sans-serif}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 18px}
+    .kpi{padding:16px;border-radius:22px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
+    .kpi span{display:block;color:var(--muted);font-size:.83rem;margin-bottom:8px}
+    .kpi strong{font-size:1.3rem}
+    .dre-table,.list-table{width:100%;border-collapse:collapse;overflow:hidden;border-radius:22px}
+    .dre-table th,.dre-table td,.list-table th,.list-table td{padding:14px 12px;border-bottom:1px solid rgba(255,255,255,.07);text-align:left;vertical-align:middle}
+    .dre-table th,.list-table th{font-size:.84rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:rgba(255,255,255,.03)}
+    .dre-section td{font-weight:700;color:var(--primary-2);padding-top:20px;background:rgba(255,255,255,.02)}
+    .dre-section.expandable td{cursor:pointer;user-select:none}
+    .dre-section.expandable td:hover{background:rgba(17,197,217,.08)}
+    .dre-sub td{background:rgba(255,255,255,.018);color:#dce9f6;font-weight:600}
+    .dre-account td{font-size:.92rem;color:#c9d7e5}
+    .dre-account td:first-child{padding-left:34px}
+    .dre-sub td:first-child{padding-left:18px}
+    .toggle-icon{display:inline-block;min-width:24px;color:var(--primary-2);font-weight:800}
+    .dre-note{color:var(--muted);font-size:.86rem;margin:-4px 0 16px}
+    .dre-result td{font-weight:800;font-size:1rem}
+    .positive{color:var(--good)}
+    .negative{color:#ff8d8d}
+    .center{text-align:center}
+    .tag{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;font-size:.8rem;font-weight:700;border:1px solid transparent}
+    .tag.receita{background:rgba(52,211,153,.12);color:#9ff0c7;border-color:rgba(52,211,153,.2)}
+    .tag.custo{background:rgba(255,202,92,.12);color:#ffe08d;border-color:rgba(255,202,92,.2)}
+    .tag.deducao{background:rgba(255,140,66,.12);color:#ffd8bf;border-color:rgba(255,140,66,.2)}
+    .tag.despesa{background:rgba(255,107,107,.12);color:#ffc1c1;border-color:rgba(255,107,107,.2)}
+
+    .segmented{display:inline-flex;gap:6px;padding:6px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+    .seg-btn{border:none;background:transparent;color:var(--muted);padding:10px 14px;border-radius:12px;cursor:pointer;font:700 .9rem 'Poppins',sans-serif}
+    .seg-btn.active{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#032533}
+    .tag.gerencial{background:rgba(17,197,217,.12);color:#b7f7ff;border-color:rgba(17,197,217,.25)}
+    .tag.analitica{background:rgba(168,85,247,.12);color:#e7c6ff;border-color:rgba(168,85,247,.25)}
+    .dre-launch td:first-child{padding-left:50px;color:#aabed2;font-size:.88rem}
+
+    .table-wrap{overflow:auto}
+    .empty{padding:26px;border:1px dashed rgba(255,255,255,.12);border-radius:22px;color:var(--muted);text-align:center;background:rgba(255,255,255,.02)}
+    .actions-row{display:flex;gap:8px;flex-wrap:wrap}
+    .mini-btn{border:none;border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.06);color:var(--text);cursor:pointer;font:600 .85rem 'Poppins',sans-serif}
+    .mini-btn.delete{background:rgba(255,107,107,.12);color:#ffd1d1}
+    .foot-note{margin-top:14px;color:var(--muted);font-size:.88rem}
+    .tree-select{position:relative}
+    .tree-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:22px 22px;min-height:96px;color:var(--text);font:600 1.12rem 'Poppins',sans-serif;cursor:pointer;text-align:left;box-shadow:inset 0 0 0 1px rgba(255,255,255,.02)}
+    .tree-trigger #treeSelectedLabel{display:block;max-width:calc(100% - 42px);line-height:1.35}
+    .tree-trigger span:last-child{color:var(--muted);font-size:1.15rem;transition:transform .2s ease}
+    .tree-select.open .tree-trigger span:last-child{transform:rotate(180deg)}
+    .tree-panel{display:none;position:absolute;left:0;right:0;top:calc(100% + 10px);z-index:30;background:#0d1d2d;border:1px solid rgba(255,255,255,.12);border-radius:22px;box-shadow:0 24px 60px rgba(0,0,0,.4);padding:14px;max-height:430px;overflow:auto}
+    .tree-select.open .tree-panel{display:block}
+    .tree-search{margin-bottom:10px}
+    .tree-search input{width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:12px 14px;color:var(--text);font:500 .92rem 'Poppins',sans-serif}
+    .tree-node{border:1px solid rgba(255,255,255,.06);border-radius:16px;background:rgba(255,255,255,.025);margin-bottom:10px;overflow:hidden}
+    .tree-node summary{list-style:none;cursor:pointer;padding:13px 14px;font-weight:700;color:var(--text);display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .tree-node summary::-webkit-details-marker{display:none}
+    .tree-node summary .meta{font-size:.82rem;color:var(--muted);font-weight:600}
+    .tree-node[open] > summary{background:rgba(17,197,217,.08);color:#dffcff}
+    .tree-children{padding:8px 10px 12px}
+    .tree-leaf{width:100%;text-align:left;border:none;background:rgba(255,255,255,.04);color:var(--text);padding:11px 12px;border-radius:12px;margin:6px 0;cursor:pointer;font:500 .92rem 'Poppins',sans-serif;border:1px solid transparent}
+    .tree-leaf:hover{background:rgba(17,197,217,.12);border-color:rgba(17,197,217,.25)}
+    .tree-leaf.selected{background:rgba(0,224,184,.16);border-color:rgba(0,224,184,.35);color:#d9fff6}
+    .tree-empty{padding:12px;color:var(--muted);font-size:.9rem;text-align:center}
+    .tree-hint{margin-top:8px;color:var(--muted);font-size:.84rem}
+    .upload-box{border:1.5px dashed rgba(17,197,217,.35);border-radius:20px;padding:18px;background:rgba(255,255,255,.03)}
+    .upload-box input[type="file"]{display:block;width:100%;padding:14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:var(--text)}
+    .upload-help{margin-top:10px;color:var(--muted);font-size:.84rem;line-height:1.5}
+    .file-list{display:grid;gap:10px;margin-top:12px}
+    .file-chip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}
+    .file-chip small{display:block;color:var(--muted);margin-top:2px}
+    .link-btn{background:none;border:none;color:var(--primary-2);cursor:pointer;font:700 .85rem 'Poppins',sans-serif;padding:0}
+    .attach-btn{border:none;border-radius:12px;padding:8px 10px;background:rgba(17,197,217,.12);color:#dffcff;cursor:pointer;font:700 .8rem 'Poppins',sans-serif}
+    .modal{position:fixed;inset:0;background:rgba(3,8,15,.72);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:80;padding:20px}
+    .modal.open{display:flex}
+    .modal-card{width:min(920px,100%);max-height:90vh;overflow:auto;background:#0d1d2d;border:1px solid rgba(255,255,255,.08);border-radius:28px;padding:22px;box-shadow:0 24px 60px rgba(0,0,0,.45)}
+    .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+    .modal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+    .proof-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:14px}
+    .proof-card img{width:100%;height:180px;object-fit:cover;border-radius:14px;border:1px solid rgba(255,255,255,.08);margin-bottom:10px}
+    .proof-card iframe{width:100%;height:220px;border:none;border-radius:14px;background:#fff;margin-bottom:10px}
+    .proof-meta{color:var(--muted);font-size:.82rem;line-height:1.45}
+    @media (max-width:1150px){.layout{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}.kpis{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:760px){.wrap{width:min(100% - 20px, 1380px)}.summary,.kpis,.row-2,.row-3{grid-template-columns:1fr}.brand{align-items:flex-start}.brand img{width:60px;height:60px}.btn{width:100%;justify-content:center}.actions{width:100%}.tree-trigger{min-height:118px;padding:24px 22px;font-size:1.18rem;line-height:1.4;border-radius:24px}.tree-trigger span:last-child{font-size:1.35rem}.tree-panel{position:fixed;left:12px;right:12px;top:auto;bottom:12px;max-height:68vh;border-radius:24px}.tree-search input{padding:14px 16px;font-size:1rem}.tree-leaf,.tree-node summary{padding:14px 14px;font-size:1rem}.modal-card{padding:16px;border-radius:22px}}
+  </style>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/logo-republica-da-praia.png" alt="Logo República da Praia">
+        <div>
+          <p class="eyebrow">Painel administrativo</p>
+          <h1>DRE gerencial + analítica</h1>
+          <p class="sub">Lance valores no mesmo painel e escolha se cada lançamento vai para a visão gerencial ou para a analítica. Os dados ficam salvos no servidor para aparecer em outros aparelhos.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="admin-aulas.html">Configurar aulas</a>
+        <button class="btn btn-ghost" id="btnPopular">Inserir exemplo</button>
+        <button class="btn btn-ghost" id="btnExportar">Exportar Excel</button>
+        <button class="btn btn-danger" id="btnLimpar">Apagar tudo</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="summary">
+        <div class="stat"><span>Receita bruta</span><strong id="cardReceita">R$ 0,00</strong><small id="cardReceitaInfo">No mês filtrado</small></div>
+        <div class="stat"><span>Deduções</span><strong id="cardDeducoes">R$ 0,00</strong><small id="cardDeducoesInfo">Simples e outras deduções</small></div>
+        <div class="stat"><span>Margem bruta</span><strong id="cardMargemBruta">R$ 0,00</strong><small id="cardMargemBrutaInfo">Receita líquida - custos</small></div>
+        <div class="stat"><span>Despesas operacionais</span><strong id="cardDespesas">R$ 0,00</strong><small id="cardDespesasInfo">No mês filtrado</small></div>
+        <div class="stat"><span>Resultado líquido</span><strong id="cardResultado">R$ 0,00</strong><small id="cardResultadoInfo">Margem 0,00%</small></div>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="card">
+        <h2>Novo lançamento</h2>
+        <p class="muted">Selecione a conta fixa, informe o valor e escolha se o lançamento entra no DRE gerencial ou no analítico.</p>
+
+        <form id="formLancamento" class="form-grid">
+          <div class="field">
+            <label for="descricao">Descrição</label>
+            <input id="descricao" name="descricao" type="text" placeholder="Ex.: Locação avulsa quadra 2" required>
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label for="valor">Valor (R$)</label>
+              <input id="valor" name="valor" type="number" min="0" step="0.01" placeholder="0,00" required>
+            </div>
+            <div class="field">
+              <label for="data">Data</label>
+              <input id="data" name="data" type="date" required>
+            </div>
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label for="grupo">Grupo no DRE</label>
+              <select id="grupo" name="grupo" required>
+                <option value="receita">Receita bruta</option>
+                <option value="deducao">Deduções</option>
+                <option value="custo">Custos</option>
+                <option value="despesa">Despesas por unidade de negócio</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="categoria">Conta fixa do DRE</label>
+              <div class="tree-select" id="contaTree">
+                <button type="button" class="tree-trigger" id="treeTrigger">
+                  <span id="treeSelectedLabel">Selecione uma conta fixa</span>
+                  <span>⌄</span>
+                </button>
+                <div class="tree-panel" id="treePanel">
+                  <div class="tree-search"><input type="text" id="treeSearch" placeholder="Buscar conta..." autocomplete="off"></div>
+                  <div id="treeOptions"></div>
+                </div>
+              </div>
+              <input id="categoria" name="categoria" type="hidden" required>
+              <div class="tree-hint" id="treeHint">Clique em uma categoria principal para abrir as subcategorias. No celular, esse botão está maior para facilitar a leitura e o toque.</div>
+            </div>
+          </div>
+
+          <div class="row-3">
+            <div class="field">
+              <label for="destino">Lançar em</label>
+              <select id="destino" name="destino">
+                <option value="gerencial">DRE Gerencial</option>
+                <option value="analitica">DRE Analítica</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="competencia">Competência</label>
+              <input id="competencia" name="competencia" type="month" required>
+            </div>
+            <div class="field">
+              <label for="pagamento">Conta / pagamento</label>
+              <select id="pagamento" name="pagamento">
+                <option value="pix">Itau</option>
+                <option value="cartao">Bradesco</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="obs">Observações</label>
+            <textarea id="obs" name="obs" placeholder="Ex.: Professor beach tênis terça 19h"></textarea>
+          </div>
+
+          <div class="field">
+            <label for="anexos">Recibos, notas fiscais e comprovantes</label>
+            <div class="upload-box">
+              <input id="anexos" name="anexos" type="file" accept="image/*,.pdf" multiple>
+              <div class="upload-help">Anexe fotos de recibos, imagens de notas fiscais ou PDF. Os arquivos seguem junto com o lançamento salvo no servidor. Para não pesar demais, use poucos arquivos por lançamento.</div>
+              <div id="filePreview" class="file-list"></div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" type="submit">Salvar lançamento</button>
+          <div class="status" id="statusMsg"></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <div class="pill" id="pillTotal">0 lançamentos</div>
+            <div class="segmented" id="visaoTabs">
+              <button type="button" class="seg-btn active" data-visao="gerencial">Gerencial</button>
+              <button type="button" class="seg-btn" data-visao="analitica">Analítica</button>
+            </div>
+            <div class="inline-input">
+              <input id="filtroCompetencia" type="month">
+            </div>
+            <div class="inline-input">
+              <select id="filtroGrupo">
+                <option value="todos">Todos os grupos</option>
+                <option value="receita">Receita bruta</option>
+                <option value="deducao">Deduções</option>
+                <option value="custo">Custos</option>
+                <option value="despesa">Despesas por unidade de negócio</option>
+              </select>
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <div class="inline-input">
+              <input id="busca" type="text" placeholder="Buscar por descrição ou categoria">
+            </div>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><span>Receita líquida</span><strong id="kpiReceitaLiquida">R$ 0,00</strong></div>
+          <div class="kpi"><span>Margem bruta</span><strong id="kpiMargemBruta">0,00%</strong></div>
+          <div class="kpi"><span>Despesas / receita líquida</span><strong id="kpiOperacional">0,00%</strong></div>
+          <div class="kpi"><span>Margem líquida</span><strong id="kpiMargemLiquida">0,00%</strong></div>
+        </div>
+
+        <h2 id="tituloDemonstrativo">Demonstrativo gerencial</h2>
+        <p class="muted" id="subtituloDemonstrativo">Visão gerencial resumida do período selecionado com a estrutura do seu DRE.</p>
+        <p class="dre-note" id="dreNote">Clique nas linhas principais, como Receita bruta, Deduções, Custos e Despesas, para abrir as subcategorias nessa própria área.</p>
+        <div class="table-wrap">
+          <table class="dre-table">
+            <thead>
+              <tr>
+                <th>Linha</th>
+                <th class="center">Valor</th>
+                <th class="center">% da receita</th>
+              </tr>
+            </thead>
+            <tbody id="dreBody"></tbody>
+          </table>
+        </div>
+
+        <h2 style="margin-top:28px">Lançamentos</h2>
+        <p class="muted">Lista detalhada para conferência, mostrando data e competência de cada lançamento para evitar mistura de meses.</p>
+        <div class="table-wrap" id="listaWrap"></div>
+        <p class="foot-note">Dica: use a competência para fechar cada mês, mesmo que o pagamento ou recebimento tenha ocorrido em outra data. Na analítica, você enxerga também os lançamentos individuais dentro de cada conta.</p>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="proofModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 style="margin:0 0 4px">Comprovantes do lançamento</h2>
+          <p class="muted" id="proofModalText" style="margin:0">Visualize recibos, notas fiscais e anexos salvos.</p>
+        </div>
+        <button class="btn btn-ghost" type="button" id="closeProofModal">Fechar</button>
+      </div>
+      <div class="modal-grid" id="proofModalBody"></div>
+    </div>
+  </div>
+
+
+<script>
+  const API_BASE = 'https://republica-api-1.onrender.com'.replace(/\/$/, '');
+
+  const PLANO_CONTAS = [
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Vendas Aluguel Quadras' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Vendas de Bebidas' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Vendas de Comidas' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Aulas Beach' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Aulas Volei' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Aulas Futevolei' },
+    { grupo:'receita', secao:'Receita Bruta', categoria:'Colônia' },
+
+    { grupo:'deducao', secao:'Deduções', categoria:'Simples 18%' },
+
+    { grupo:'custo', secao:'Custos', categoria:'Custo de Bebidas' },
+    { grupo:'custo', secao:'Custos', categoria:'Custo de Comidas' },
+    { grupo:'custo', secao:'Custos', categoria:'Custo Aulas Beach (Professor)' },
+    { grupo:'custo', secao:'Custos', categoria:'Custo Aulas Volei (Professor)' },
+    { grupo:'custo', secao:'Custos', categoria:'Custo Aulas Futevolei (Professor)' },
+    { grupo:'custo', secao:'Custos', categoria:'Custos Transp  Prof Futevolei' },
+
+    { grupo:'despesa', secao:'Pessoal U.N.', categoria:'(Folha de Pagamento por Unid)' },
+    { grupo:'despesa', secao:'Pessoal U.N.', categoria:'(Encargos?)' },
+    { grupo:'despesa', secao:'Serviços de Terceiros', categoria:'Seviços Temporários de Limpeza' },
+    { grupo:'despesa', secao:'Manutenção e Conservação Predial', categoria:'Manut Areias . e Conserv. Predial' },
+    { grupo:'despesa', secao:'Manutenção e Conservação Predial', categoria:'Energia Elétrica + Iluminação Quadra' },
+    { grupo:'despesa', secao:'Manutenção e Conservação Predial', categoria:'Água e Esgoto' },
+    { grupo:'despesa', secao:'Manutenção e Conservação Predial', categoria:'Material de Limpeza' },
+    { grupo:'despesa', secao:'Viagens', categoria:'Despesas c/ Viagens - Vendedores' },
+    { grupo:'despesa', secao:'Viagens', categoria:'Desp.c/Viagens - Diretores' },
+    { grupo:'despesa', secao:'Aluguéis e IPTU', categoria:'Aluguel + IPTU' },
+    { grupo:'despesa', secao:'Outros', categoria:'Desp.divs.c/Importações' },
+    { grupo:'despesa', secao:'Outros', categoria:'Descarga de Conteineres' },
+    { grupo:'despesa', secao:'Informática', categoria:'Manut.de Sistemas' },
+    { grupo:'despesa', secao:'Informática', categoria:'Internet' },
+    { grupo:'despesa', secao:'Informática', categoria:'Manut.Equipt.de Informática' },
+    { grupo:'despesa', secao:'Veículos', categoria:'Combustíveis e Lubrificantes' },
+    { grupo:'despesa', secao:'Veículos', categoria:'Manut.e Conserv.de Veículos' },
+    { grupo:'despesa', secao:'Matrs. de Consumo', categoria:'Bolinhas e Raquetes' },
+    { grupo:'despesa', secao:'Matrs. de Consumo', categoria:'Adesivos e Outros' },
+    { grupo:'despesa', secao:'Matrs. de Consumo', categoria:'Garrafas (Camisinhas)' },
+    { grupo:'despesa', secao:'Propaganda e Publicidade', categoria:'Mídias de Comunicação (Google / Facebook)' },
+    { grupo:'despesa', secao:'Propaganda e Publicidade', categoria:'Softwares de Marketing (RD Station)' },
+    { grupo:'despesa', secao:'Propaganda e Publicidade', categoria:'Contrato Lapiseira' },
+    { grupo:'despesa', secao:'Outros', categoria:'Contador' },
+    { grupo:'despesa', secao:'Outros', categoria:'Investimento Addan' },
+    { grupo:'despesa', secao:'Despesas Financeiras', categoria:'Despesas Financeiras' }
+  ];
+
+  const form = document.getElementById('formLancamento');
+  const categoriaSelect = document.getElementById('categoria');
+  const competenciaInput = document.getElementById('competencia');
+  const dataInput = document.getElementById('data');
+  const statusMsg = document.getElementById('statusMsg');
+  const filtroCompetencia = document.getElementById('filtroCompetencia');
+  const filtroGrupo = document.getElementById('filtroGrupo');
+  const buscaInput = document.getElementById('busca');
+  const contaTree = document.getElementById('contaTree');
+  const treeSearch = document.getElementById('treeSearch');
+  const treeOptions = document.getElementById('treeOptions');
+  const treeSelectedLabel = document.getElementById('treeSelectedLabel');
+  const treeTrigger = document.getElementById('treeTrigger');
+  const anexosInput = document.getElementById('anexos');
+  const filePreview = document.getElementById('filePreview');
+  const proofModal = document.getElementById('proofModal');
+  const proofModalBody = document.getElementById('proofModalBody');
+  const proofModalText = document.getElementById('proofModalText');
+  const visaoTabs = document.getElementById('visaoTabs');
+  const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  const percent = (v) => `${(Number(v) || 0).toFixed(2).replace('.', ',')}%`;
+
+  const state = {
+    lancamentos: [],
+    visao: 'gerencial',
+    expandedSections: { gerencial:{receita:true,deducao:false,custo:false,despesa:false}, analitica:{receita:true,deducao:false,custo:false,despesa:false} }
+  };
+
+  function hojeISO(){
+    const d = new Date();
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d - tzOffset).toISOString().slice(0,10);
+  }
+  function competenciaAtual(){ return hojeISO().slice(0,7); }
+  function competenciaDaData(data){
+    const bruto = String(data || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(bruto) ? bruto.slice(0,7) : '';
+  }
+  function normalizarCompetencia(valor, fallback=''){
+    const bruto = String(valor || '').trim();
+    if(/^\d{4}-\d{2}$/.test(bruto)) return bruto;
+    const fallbackBruto = String(fallback || '').trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(fallbackBruto)) return fallbackBruto.slice(0,7);
+    if(/^\d{4}-\d{2}$/.test(fallbackBruto)) return fallbackBruto;
+    return '';
+  }
+  function competenciaEfetiva(item){
+    if(item?.competenciaManual) return normalizarCompetencia(item?.competencia, item?.data);
+    return competenciaDaData(item?.data) || normalizarCompetencia(item?.competencia, item?.data);
+  }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+  function parseValor(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
+  function formatBytes(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1024 * 1024) return (bytes / 1024).toFixed(1).replace('.', ',') + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2).replace('.', ',') + ' MB';
+  }
+  function escapeHtml(text){
+    return String(text || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function contaByCategoria(categoria){ return PLANO_CONTAS.find(i => i.categoria === categoria); }
+
+  async function api(path, options={}){
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type':'application/json', ...(options.headers || {}) },
+      ...options
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Erro na comunicação com o servidor.');
+    return data;
+  }
+
+  async function carregarServidor(){
+    const data = await api('/api/dre/lancamentos');
+    const lista = Array.isArray(data.lancamentos) ? data.lancamentos : [];
+    state.lancamentos = lista.map(item => ({
+      ...item,
+      competencia: normalizarCompetencia(item?.competencia, item?.data),
+      competenciaManual: Boolean(item?.competenciaManual)
+    }));
+  }
+  async function salvarLancamentoServidor(lancamento){
+    await api('/api/dre/lancamentos', { method:'POST', body: JSON.stringify(lancamento) });
+  }
+  async function removerLancamentoServidor(id){
+    await api(`/api/dre/lancamentos/${encodeURIComponent(id)}`, { method:'DELETE' });
+  }
+  async function limparServidor(){
+    await api('/api/dre/lancamentos', { method:'DELETE' });
+  }
+
+  function renderFilePreview(files){
+    if(!files.length){ filePreview.innerHTML = ''; return; }
+    filePreview.innerHTML = files.map((file, index) => `
+      <div class="file-chip">
+        <div>
+          <strong>${escapeHtml(file.name)}</strong>
+          <small>${escapeHtml(file.type || 'arquivo')} • ${formatBytes(file.size || 0)}</small>
+        </div>
+        <button type="button" class="link-btn" data-remove-file="${index}">Remover</button>
+      </div>
+    `).join('');
+    filePreview.querySelectorAll('[data-remove-file]').forEach(btn => btn.addEventListener('click', () => removerArquivoSelecionado(Number(btn.dataset.removeFile))));
+  }
+  function removerArquivoSelecionado(index){
+    const files = Array.from(anexosInput.files || []);
+    files.splice(index, 1);
+    const dt = new DataTransfer();
+    files.forEach(file => dt.items.add(file));
+    anexosInput.files = dt.files;
+    renderFilePreview(files);
+  }
+  async function arquivosParaBase64(fileList){
+    const files = Array.from(fileList || []);
+    if(!files.length) return [];
+    const total = files.reduce((sum, file) => sum + (file.size || 0), 0);
+    if(total > 8 * 1024 * 1024) throw new Error('Os anexos ficaram pesados demais. Tente reduzir ou usar arquivos menores.');
+    return Promise.all(files.map(file => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name:file.name, type:file.type, size:file.size, dataUrl:String(reader.result || '') });
+      reader.onerror = () => reject(new Error('Não foi possível ler um dos anexos.'));
+      reader.readAsDataURL(file);
+    })));
+  }
+  function abrirModalComprovantes(item){
+    const anexos = item.anexos || [];
+    proofModalText.textContent = `${item.categoria} • ${anexos.length} comprovante(s)`;
+    proofModalBody.innerHTML = anexos.length ? anexos.map((anexo, index) => `
+      <div class="proof-card">
+        ${anexo.type && anexo.type.startsWith('image/') ? `<img src="${anexo.dataUrl}" alt="${escapeHtml(anexo.name)}">` : `<iframe src="${anexo.dataUrl}" title="${escapeHtml(anexo.name)}"></iframe>`}
+        <strong>${escapeHtml(anexo.name || 'Arquivo ' + (index + 1))}</strong>
+        <div class="proof-meta">${escapeHtml(anexo.type || 'arquivo')} • ${formatBytes(anexo.size || 0)}</div>
+        <div style="margin-top:10px"><a class="btn btn-ghost" href="${anexo.dataUrl}" download="${escapeHtml(anexo.name || 'comprovante')}">Baixar arquivo</a></div>
+      </div>
+    `).join('') : '<div class="empty" style="grid-column:1/-1">Esse lançamento não possui comprovantes anexados.</div>';
+    proofModal.classList.add('open');
+  }
+
+  function planoAgrupado(){
+    return [
+      { titulo:'Receita Bruta', itens:PLANO_CONTAS.filter(i => i.grupo === 'receita') },
+      { titulo:'Deduções', itens:PLANO_CONTAS.filter(i => i.grupo === 'deducao') },
+      { titulo:'Custos', itens:PLANO_CONTAS.filter(i => i.grupo === 'custo') },
+      {
+        titulo:'Despesas por Unidade de Negócio',
+        secoes:[...new Set(PLANO_CONTAS.filter(i => i.grupo === 'despesa').map(i => i.secao))].map(secao => ({
+          titulo:secao,
+          itens:PLANO_CONTAS.filter(i => i.grupo === 'despesa' && i.secao === secao)
+        }))
+      }
+    ];
+  }
+  function preencherCategorias(termo=''){
+    const q = termo.trim().toLowerCase();
+    const grupos = planoAgrupado();
+    const html = grupos.map(grupo => {
+      if(grupo.secoes){
+        const secoesHtml = grupo.secoes.map(secao => {
+          const itens = secao.itens.filter(item => !q || item.categoria.toLowerCase().includes(q) || secao.titulo.toLowerCase().includes(q) || grupo.titulo.toLowerCase().includes(q));
+          if(!itens.length) return '';
+          return `
+            <details class="tree-node">
+              <summary><span>${secao.titulo}</span><span class="meta">${itens.length} conta(s)</span></summary>
+              <div class="tree-children">
+                ${itens.map(item => `<button type="button" class="tree-leaf ${categoriaSelect.value === item.categoria ? 'selected' : ''}" data-categoria="${escapeHtml(item.categoria)}">${item.categoria}</button>`).join('')}
+              </div>
+            </details>`;
+        }).join('');
+        if(!secoesHtml) return '';
+        return `<details class="tree-node" open><summary><span>${grupo.titulo}</span><span class="meta">seções</span></summary><div class="tree-children">${secoesHtml}</div></details>`;
+      }
+      const itens = grupo.itens.filter(item => !q || item.categoria.toLowerCase().includes(q) || grupo.titulo.toLowerCase().includes(q));
+      if(!itens.length) return '';
+      return `
+        <details class="tree-node" open>
+          <summary><span>${grupo.titulo}</span><span class="meta">${itens.length} conta(s)</span></summary>
+          <div class="tree-children">
+            ${itens.map(item => `<button type="button" class="tree-leaf ${categoriaSelect.value === item.categoria ? 'selected' : ''}" data-categoria="${escapeHtml(item.categoria)}">${item.categoria}</button>`).join('')}
+          </div>
+        </details>`;
+    }).join('');
+    treeOptions.innerHTML = html || '<div class="tree-empty">Nenhuma conta encontrada.</div>';
+    treeOptions.querySelectorAll('[data-categoria]').forEach(btn => btn.addEventListener('click', () => selecionarCategoria(btn.dataset.categoria)));
+  }
+  function selecionarCategoria(categoria){
+    categoriaSelect.value = categoria;
+    treeSelectedLabel.textContent = categoria || 'Selecione uma conta fixa';
+    preencherCategorias(treeSearch.value || '');
+    contaTree.classList.remove('open');
+  }
+
+  function setPadroes(){
+    dataInput.value = hojeISO();
+    competenciaInput.value = competenciaDaData(dataInput.value) || competenciaAtual();
+    competenciaInput.dataset.manual = '0';
+    selecionarCategoria('');
+    renderFilePreview([]);
+  }
+  function listarCompetencias(lancamentos){
+    const set = new Set(lancamentos.map(competenciaEfetiva).filter(Boolean));
+    if(!set.size) set.add(competenciaAtual());
+    return [...set].sort().reverse();
+  }
+  function atualizarFiltroCompetencia(lancamentos){
+    const atual = (filtroCompetencia.value || '').trim();
+    if(atual){
+      return;
+    }
+    const competencias = listarCompetencias(lancamentos);
+    filtroCompetencia.value = competencias[0] || competenciaAtual();
+  }
+  function lancamentosDaVisao(){
+    return state.lancamentos.filter(item => (item.destino || 'gerencial') === state.visao);
+  }
+  function filtrarLancamentos(lancamentos){
+    const busca = (buscaInput.value || '').trim().toLowerCase();
+    const grupo = filtroGrupo.value || 'todos';
+    const competenciaSelecionada = normalizarCompetencia(filtroCompetencia.value);
+    return lancamentos.filter(item => {
+      if(competenciaSelecionada && competenciaEfetiva(item) !== competenciaSelecionada) return false;
+      if(grupo !== 'todos' && item.grupo !== grupo) return false;
+      if(busca && !`${item.descricao} ${item.categoria} ${item.secao} ${item.destino}`.toLowerCase().includes(busca)) return false;
+      return true;
+    });
+  }
+  function totalPorGrupo(lancamentos, grupo){ return lancamentos.filter(i => i.grupo === grupo).reduce((s,i) => s + parseValor(i.valor), 0); }
+  function totalPorCategoria(lancamentos, categoria){ return lancamentos.filter(i => i.categoria === categoria).reduce((s,i) => s + parseValor(i.valor), 0); }
+  function totalPorSecao(lancamentos, secao){ return lancamentos.filter(i => i.secao === secao).reduce((s,i) => s + parseValor(i.valor), 0); }
+  function resumoPeriodo(lancamentos){
+    const receitas = totalPorGrupo(lancamentos, 'receita');
+    const deducoes = totalPorGrupo(lancamentos, 'deducao');
+    const receitaLiquida = receitas - deducoes;
+    const custos = totalPorGrupo(lancamentos, 'custo');
+    const margemBruta = receitaLiquida - custos;
+    const despesas = totalPorGrupo(lancamentos, 'despesa');
+    const liquido = margemBruta - despesas;
+    return { receitas, deducoes, receitaLiquida, custos, margemBruta, despesas, liquido };
+  }
+  function renderCards(lancamentos){
+    const r = resumoPeriodo(lancamentos);
+    document.getElementById('cardReceita').textContent = money.format(r.receitas);
+    document.getElementById('cardDeducoes').textContent = money.format(r.deducoes);
+    document.getElementById('cardMargemBruta').textContent = money.format(r.margemBruta);
+    document.getElementById('cardDespesas').textContent = money.format(r.despesas);
+    document.getElementById('cardResultado').textContent = money.format(r.liquido);
+    document.getElementById('cardResultadoInfo').textContent = `Margem ${percent(r.receitaLiquida ? (r.liquido / r.receitaLiquida) * 100 : 0)}`;
+    document.getElementById('kpiReceitaLiquida').textContent = money.format(r.receitaLiquida);
+    document.getElementById('kpiMargemBruta').textContent = percent(r.receitaLiquida ? (r.margemBruta / r.receitaLiquida) * 100 : 0);
+    document.getElementById('kpiOperacional').textContent = percent(r.receitaLiquida ? (r.despesas / r.receitaLiquida) * 100 : 0);
+    document.getElementById('kpiMargemLiquida').textContent = percent(r.receitaLiquida ? (r.liquido / r.receitaLiquida) * 100 : 0);
+    document.getElementById('tituloDemonstrativo').textContent = state.visao === 'gerencial' ? 'Demonstrativo gerencial' : 'Demonstrativo analítico';
+    document.getElementById('subtituloDemonstrativo').textContent = state.visao === 'gerencial'
+      ? 'Visão gerencial resumida do período selecionado com a estrutura do seu DRE.'
+      : 'Visão analítica do período, detalhando as contas e os lançamentos dentro de cada grupo.';
+    document.getElementById('dreNote').textContent = state.visao === 'gerencial'
+      ? 'Clique nas linhas principais, como Receita bruta, Deduções, Custos e Despesas, para abrir as subcategorias nessa própria área.'
+      : 'Na analítica, além das contas, também aparecem os lançamentos individuais dentro de cada conta.';
+  }
+  function rowExpansivel(chave, titulo){
+    const expanded = state.expandedSections[state.visao][chave];
+    return `<tr class="dre-section expandable" data-toggle-section="${chave}"><td><span class="toggle-icon">${expanded ? '−' : '+'}</span>${titulo}</td><td></td><td></td></tr>`;
+  }
+  function linhaDRE(nome, valor, baseReceita, bold=false, extraClass=''){
+    return `<tr class="${bold ? 'dre-result' : ''} ${extraClass}"><td>${nome}</td><td class="center ${valor >= 0 ? 'positive' : 'negative'}">${money.format(valor)}</td><td class="center">${percent(baseReceita ? (valor / baseReceita) * 100 : 0)}</td></tr>`;
+  }
+  function renderDetalhesGrupo(lancamentosPeriodo, grupo, baseReceita){
+    if(!state.expandedSections[state.visao][grupo]) return '';
+    if(state.visao === 'gerencial'){
+      if(grupo === 'despesa'){
+        const secoes = [...new Set(PLANO_CONTAS.filter(i => i.grupo === 'despesa').map(i => i.secao))];
+        return secoes.map(secao => {
+          const totalSecao = totalPorSecao(lancamentosPeriodo.filter(i => i.grupo === 'despesa'), secao);
+          const contas = PLANO_CONTAS.filter(i => i.grupo === 'despesa' && i.secao === secao).map(item => {
+            const totalConta = totalPorCategoria(lancamentosPeriodo, item.categoria);
+            return linhaDRE(item.categoria, -totalConta, baseReceita, false, 'dre-account');
+          }).join('');
+          return `<tr class="dre-sub"><td>${secao}</td><td class="center negative">${money.format(-totalSecao)}</td><td class="center">${percent(baseReceita ? ((-totalSecao)/baseReceita)*100 : 0)}</td></tr>${contas}`;
+        }).join('');
+      }
+      return PLANO_CONTAS.filter(i => i.grupo === grupo).map(item => {
+        const totalConta = totalPorCategoria(lancamentosPeriodo, item.categoria);
+        const sinal = grupo === 'receita' ? totalConta : -totalConta;
+        return linhaDRE(item.categoria, sinal, baseReceita, false, 'dre-account');
+      }).join('');
+    }
+
+    const contas = grupo === 'despesa'
+      ? [...new Set(PLANO_CONTAS.filter(i => i.grupo === 'despesa').map(i => `${i.secao}|||${i.categoria}`))].map(v => { const [secao,categoria] = v.split('|||'); return {secao, categoria}; })
+      : PLANO_CONTAS.filter(i => i.grupo === grupo).map(i => ({secao:i.secao, categoria:i.categoria}));
+
+    let html = '';
+    let secaoAtual = '';
+    contas.forEach(item => {
+      if(grupo === 'despesa' && item.secao !== secaoAtual){
+        secaoAtual = item.secao;
+        const totalSecao = totalPorSecao(lancamentosPeriodo.filter(i => i.grupo === 'despesa'), secaoAtual);
+        html += `<tr class="dre-sub"><td>${secaoAtual}</td><td class="center negative">${money.format(-totalSecao)}</td><td class="center">${percent(baseReceita ? ((-totalSecao)/baseReceita)*100 : 0)}</td></tr>`;
+      }
+      const itensConta = lancamentosPeriodo.filter(l => l.categoria === item.categoria);
+      const totalConta = itensConta.reduce((s,i)=>s+parseValor(i.valor),0);
+      const sinal = grupo === 'receita' ? totalConta : -totalConta;
+      html += linhaDRE(item.categoria, sinal, baseReceita, false, 'dre-account');
+      html += itensConta.map(l => {
+        const valorLinha = grupo === 'receita' ? parseValor(l.valor) : -parseValor(l.valor);
+        return `<tr class="dre-launch"><td>• ${escapeHtml(l.descricao || l.categoria)} <span style="color:var(--muted)">(${new Date(l.data+'T12:00:00').toLocaleDateString('pt-BR')})</span></td><td class="center ${valorLinha >=0 ? 'positive':'negative'}">${money.format(valorLinha)}</td><td class="center">${percent(baseReceita ? (valorLinha/baseReceita)*100 : 0)}</td></tr>`;
+      }).join('');
+    });
+    return html;
+  }
+  function renderDRE(lancamentosPeriodo){
+    const { receitas, deducoes, receitaLiquida, custos, margemBruta, despesas, liquido } = resumoPeriodo(lancamentosPeriodo);
+    document.getElementById('dreBody').innerHTML = `
+      ${rowExpansivel('receita','Receita bruta')}
+      ${linhaDRE('(+) Receita bruta', receitas, receitas)}
+      ${renderDetalhesGrupo(lancamentosPeriodo, 'receita', receitas)}
+      ${rowExpansivel('deducao','Deduções')}
+      ${linhaDRE('(-) Deduções', -deducoes, receitas)}
+      ${renderDetalhesGrupo(lancamentosPeriodo, 'deducao', receitas)}
+      ${linhaDRE('(=) Receita líquida', receitaLiquida, receitas, true)}
+      ${rowExpansivel('custo','Custos')}
+      ${linhaDRE('(-) Custos', -custos, receitaLiquida || receitas)}
+      ${renderDetalhesGrupo(lancamentosPeriodo, 'custo', receitaLiquida || receitas)}
+      ${linhaDRE('(=) Margem bruta', margemBruta, receitaLiquida || receitas, true)}
+      ${rowExpansivel('despesa','Despesas por unidade de negócio')}
+      ${linhaDRE('(-) Despesas operacionais', -despesas, receitaLiquida || receitas)}
+      ${renderDetalhesGrupo(lancamentosPeriodo, 'despesa', receitaLiquida || receitas)}
+      ${linhaDRE('(=) Resultado líquido', liquido, receitaLiquida || receitas, true)}
+    `;
+    document.querySelectorAll('[data-toggle-section]').forEach(el => el.addEventListener('click', () => {
+      const chave = el.dataset.toggleSection;
+      state.expandedSections[state.visao][chave] = !state.expandedSections[state.visao][chave];
+      renderTudo();
+    }));
+  }
+  function badgeGrupo(grupo){
+    const mapa = { receita:'Receita bruta', deducao:'Deduções', custo:'Custos', despesa:'Despesa' };
+    return `<span class="tag ${grupo}">${mapa[grupo] || grupo}</span>`;
+  }
+  function badgeDestino(destino){
+    return `<span class="tag ${destino === 'analitica' ? 'analitica' : 'gerencial'}">${destino === 'analitica' ? 'Analítica' : 'Gerencial'}</span>`;
+  }
+  function renderLista(lancamentos){
+    const wrap = document.getElementById('listaWrap');
+    const visiveis = filtrarLancamentos(lancamentos);
+    document.getElementById('pillTotal').textContent = `${visiveis.length} lançamento(s)`;
+    if(!visiveis.length){ wrap.innerHTML = '<div class="empty">Nenhum lançamento encontrado para esse filtro.</div>'; return; }
+    wrap.innerHTML = `
+      <table class="list-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Conta selecionada</th>
+            <th>Competência</th>
+            <th>Vai para</th>
+            <th>Grupo</th>
+            <th>Seção</th>
+            <th>Pagamento</th>
+            <th>Comprovantes</th>
+            <th>Valor</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visiveis.map(item => `
+            <tr>
+              <td>${new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+              <td><strong>${escapeHtml(item.categoria)}</strong>${item.obs ? `<div style="color:var(--muted);font-size:.84rem;margin-top:5px">${escapeHtml(item.obs)}</div>` : ''}</td>
+              <td>${escapeHtml(competenciaEfetiva(item) || '—')}</td>
+              <td>${badgeDestino(item.destino || 'gerencial')}</td>
+              <td>${badgeGrupo(item.grupo)}</td>
+              <td>${escapeHtml(item.secao || '—')}</td>
+              <td>${escapeHtml(item.pagamento || '—')}</td>
+              <td>${item.anexos?.length ? `<button class="attach-btn" data-view-proof="${item.id}">${item.anexos.length} arquivo(s)</button>` : '—'}</td>
+              <td class="${item.grupo === 'receita' ? 'positive' : 'negative'}">${money.format(parseValor(item.valor))}</td>
+              <td><div class="actions-row"><button class="mini-btn delete" data-id="${item.id}">Excluir</button></div></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+    wrap.querySelectorAll('[data-id]').forEach(btn => btn.addEventListener('click', async () => {
+      await removerLancamento(btn.dataset.id);
+    }));
+    wrap.querySelectorAll('[data-view-proof]').forEach(btn => btn.addEventListener('click', () => {
+      const item = visiveis.find(v => v.id === btn.dataset.viewProof);
+      if(item) abrirModalComprovantes(item);
+    }));
+  }
+  function exportarDados(){
+    if(typeof XLSX === 'undefined'){
+      alert('Não foi possível carregar o exportador de Excel. Recarregue a página e tente novamente.');
+      return;
+    }
+    const todosDaVisao = lancamentosDaVisao();
+    const competenciaSelecionada = normalizarCompetencia(filtroCompetencia.value);
+    const periodo = todosDaVisao.filter(l => competenciaEfetiva(l) === competenciaSelecionada);
+    const resumo = calcularResumo(periodo);
+
+    const resumoRows = [
+      { Linha:'Receita bruta', Valor: resumo.receitaBruta },
+      { Linha:'Deduções', Valor: resumo.deducoes },
+      { Linha:'Receita líquida', Valor: resumo.receitaLiquida },
+      { Linha:'Custos', Valor: resumo.custos },
+      { Linha:'Margem bruta', Valor: resumo.margemBruta },
+      { Linha:'Despesas operacionais', Valor: resumo.despesas },
+      { Linha:'Resultado líquido', Valor: resumo.resultadoLiquido },
+      { Linha:'Margem líquida (%)', Valor: resumo.receitaBruta ? Number(((resumo.resultadoLiquido / resumo.receitaBruta) * 100).toFixed(2)) : 0 }
+    ];
+
+    const detalhesRows = Object.entries(resumo.contas || {}).map(([conta, valor]) => {
+      const meta = contaByCategoria(conta) || {};
+      return {
+        Grupo: grupoLabel(meta.grupo || ''),
+        Seção: meta.secao || '',
+        Conta: conta,
+        Valor: valor
+      };
+    }).sort((a,b) => (a.Grupo+a.Seção+a.Conta).localeCompare(b.Grupo+b.Seção+b.Conta, 'pt-BR'));
+
+    const lancRows = periodo.map(item => ({
+      Data: item.data || '',
+      Competencia: competenciaEfetiva(item) || '',
+      Descricao: item.descricao || '',
+      Conta: item.categoria || '',
+      Grupo: grupoLabel(item.grupo || ''),
+      Secao: item.secao || '',
+      Destino: item.destino === 'analitica' ? 'Analítica' : 'Gerencial',
+      Pagamento: item.pagamento || '',
+      Observacao: item.obs || '',
+      Valor: parseValor(item.valor),
+      Anexos: item.anexos?.length || 0
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const wsResumo = XLSX.utils.json_to_sheet(resumoRows);
+    const wsDetalhes = XLSX.utils.json_to_sheet(detalhesRows);
+    const wsLanc = XLSX.utils.json_to_sheet(lancRows);
+
+    wsResumo['!cols'] = [{wch:28},{wch:16}];
+    wsDetalhes['!cols'] = [{wch:24},{wch:28},{wch:38},{wch:16}];
+    wsLanc['!cols'] = [{wch:12},{wch:12},{wch:28},{wch:34},{wch:22},{wch:26},{wch:12},{wch:18},{wch:28},{wch:14},{wch:10}];
+
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo DRE');
+    XLSX.utils.book_append_sheet(wb, wsDetalhes, 'Detalhes DRE');
+    XLSX.utils.book_append_sheet(wb, wsLanc, 'Lancamentos');
+
+    XLSX.writeFile(wb, `dre-${state.visao}-${competenciaSelecionada || competenciaAtual()}.xlsx`);
+  }
+  async function renderTudo(){
+    const periodoTodos = lancamentosDaVisao();
+    atualizarFiltroCompetencia(periodoTodos);
+    const competenciaSelecionada = normalizarCompetencia(filtroCompetencia.value);
+    const periodo = periodoTodos.filter(l => competenciaEfetiva(l) === competenciaSelecionada);
+    renderCards(periodo);
+    renderDRE(periodo);
+    renderLista(periodoTodos);
+    visaoTabs.querySelectorAll('[data-visao]').forEach(btn => btn.classList.toggle('active', btn.dataset.visao === state.visao));
+  }
+  async function removerLancamento(id){
+    await removerLancamentoServidor(id);
+    await carregarServidor();
+    renderTudo();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const dados = new FormData(form);
+    const categoria = (dados.get('categoria') || '').toString();
+    const conta = contaByCategoria(categoria);
+    const descricao = (dados.get('descricao') || '').toString().trim() || categoria;
+    let anexos = [];
+    try {
+      anexos = await arquivosParaBase64(anexosInput.files);
+      const lancamento = {
+        id: uid(),
+        descricao,
+        valor: parseValor(dados.get('valor')),
+        data: dados.get('data'),
+        grupo: conta?.grupo || '',
+        secao: conta?.secao || '',
+        categoria,
+        competencia: normalizarCompetencia(dados.get('competencia'), dados.get('data')),
+        competenciaManual: competenciaInput.dataset.manual === '1',
+        pagamento: dados.get('pagamento'),
+        obs: (dados.get('obs') || '').toString().trim(),
+        anexos,
+        destino: (dados.get('destino') || 'gerencial').toString()
+      };
+      if(!lancamento.categoria || !lancamento.valor || !lancamento.data || !lancamento.competencia || !lancamento.grupo){
+        statusMsg.textContent = 'Selecione uma conta fixa e preencha valor, data e competência.';
+        return;
+      }
+      await salvarLancamentoServidor(lancamento);
+      await carregarServidor();
+      form.reset();
+      setPadroes();
+      document.getElementById('destino').value = lancamento.destino;
+      statusMsg.textContent = `Lançamento salvo em ${lancamento.destino === 'analitica' ? 'DRE Analítica' : 'DRE Gerencial'} com sucesso.`;
+      filtroCompetencia.value = lancamento.competencia;
+      state.visao = lancamento.destino;
+      renderTudo();
+    } catch(err) {
+      statusMsg.textContent = err.message || 'Não foi possível salvar o lançamento.';
+    }
+  });
+
+  filtroCompetencia.addEventListener('change', renderTudo);
+  dataInput.addEventListener('change', () => {
+    if(competenciaInput.dataset.manual !== '1'){
+      competenciaInput.value = competenciaDaData(dataInput.value) || competenciaAtual();
+    }
+  });
+  competenciaInput.addEventListener('input', () => {
+    const atualData = competenciaDaData(dataInput.value);
+    competenciaInput.dataset.manual = competenciaInput.value && competenciaInput.value !== atualData ? '1' : '0';
+  });
+  filtroGrupo.addEventListener('change', renderTudo);
+  buscaInput.addEventListener('input', renderTudo);
+  treeTrigger.addEventListener('click', () => {
+    contaTree.classList.toggle('open');
+    if(contaTree.classList.contains('open')) setTimeout(() => treeSearch.focus(), 30);
+  });
+  treeSearch.addEventListener('input', () => preencherCategorias(treeSearch.value));
+  anexosInput.addEventListener('change', () => renderFilePreview(Array.from(anexosInput.files || [])));
+  document.addEventListener('click', (e) => { if(!contaTree.contains(e.target)) contaTree.classList.remove('open'); });
+  document.getElementById('closeProofModal').addEventListener('click', () => proofModal.classList.remove('open'));
+  proofModal.addEventListener('click', (e) => { if(e.target === proofModal) proofModal.classList.remove('open'); });
+  visaoTabs.querySelectorAll('[data-visao]').forEach(btn => btn.addEventListener('click', () => { state.visao = btn.dataset.visao; renderTudo(); }));
+
+  document.getElementById('btnLimpar').addEventListener('click', async () => {
+    if(!confirm('Deseja apagar todos os lançamentos salvos no servidor?')) return;
+    try {
+      await limparServidor();
+      await carregarServidor();
+      renderTudo();
+    } catch(err) {
+      statusMsg.textContent = err.message;
+    }
+  });
+  document.getElementById('btnExportar').addEventListener('click', exportarDados);
+  document.getElementById('btnPopular').addEventListener('click', async () => {
+    const atual = competenciaAtual();
+    const exemplosBase = [
+      ['gerencial','Vendas Aluguel Quadras', 3850, 'Itau'],
+      ['gerencial','Vendas de Bebidas', 2480, 'Bradesco'],
+      ['gerencial','Aulas Beach', 7200, 'Itau'],
+      ['gerencial','Simples 18%', 2430, 'Bradesco'],
+      ['analitica','Custo de Bebidas', 980, 'Itau'],
+      ['analitica','Custo Aulas Beach (Professor)', 3100, 'Itau'],
+      ['gerencial','Aluguel + IPTU', 4200, 'Bradesco'],
+      ['analitica','Energia Elétrica + Iluminação Quadra', 1370, 'Bradesco'],
+      ['analitica','Mídias de Comunicação (Google / Facebook)', 650, 'Itau']
+    ];
+    try {
+      for(const [destino, categoria, valor, pagamento] of exemplosBase){
+        const conta = contaByCategoria(categoria);
+        await salvarLancamentoServidor({ id: uid(), descricao: categoria, valor, data: hojeISO(), grupo: conta.grupo, secao: conta.secao, categoria, competencia: normalizarCompetencia(atual, hojeISO()), pagamento, obs:'', anexos:[], destino });
+      }
+      await carregarServidor();
+      renderTudo();
+      statusMsg.textContent = 'Exemplos inseridos com sucesso.';
+    } catch(err) {
+      statusMsg.textContent = err.message;
+    }
+  });
+
+  document.querySelector('label[for="descricao"]').textContent = 'Descrição complementar (opcional)';
+  document.getElementById('descricao').placeholder = 'Se quiser, complemente. Se deixar em branco, a conta selecionada será usada.';
+  document.querySelector('label[for="categoria"]').textContent = 'Conta fixa do DRE';
+  const grupoField = document.getElementById('grupo').closest('.field');
+  grupoField.style.display = 'none';
+  const categoriaField = document.getElementById('categoria').closest('.field');
+  categoriaField.style.gridColumn = '1 / -1';
+  const treeHintEl = document.getElementById('treeHint');
+  treeHintEl.textContent = 'Clique em uma categoria principal para abrir as subcategorias. Depois escolha se o lançamento entra na visão gerencial ou analítica.';
+
+  setPadroes();
+  preencherCategorias();
+  carregarServidor().then(renderTudo).catch(err => {
+    statusMsg.textContent = 'Não consegui carregar os dados do servidor. Verifique se o backend foi atualizado.';
+    console.error(err);
+  });
+</script>
+
+</body>
+</html>
