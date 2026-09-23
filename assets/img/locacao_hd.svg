@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#bfe7ff"/>
+      <stop offset="0.55" stop-color="#e9f7ff"/>
+      <stop offset="1" stop-color="#fff7e1"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0ea5e9"/>
+      <stop offset="0.55" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#012749"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffe9b7"/>
+      <stop offset="1" stop-color="#f7d68a"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1200" height="720" fill="url(#sky)"/>
+
+  <!-- Sun glow -->
+  <circle cx="980" cy="120" r="90" fill="#ffd47a" opacity="0.95"/>
+  <circle cx="980" cy="120" r="150" fill="#ffd47a" opacity="0.35" filter="url(#soft)"/>
+
+  <!-- Sea -->
+  <path d="M0 360 C200 320, 360 400, 560 360 C760 320, 940 420, 1200 360 L1200 540 L0 540 Z" fill="url(#sea)" opacity="0.95"/>
+  <!-- Waves -->
+  <path d="M-20 410 C120 380, 240 440, 380 410 C520 380, 640 450, 780 410 C920 370, 1040 450, 1220 410" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="10" stroke-linecap="round"/>
+  <path d="M-40 455 C110 425, 260 485, 410 455 C560 425, 720 505, 870 455 C1020 405, 1080 485, 1240 455" fill="none" stroke="#e0f2fe" stroke-opacity="0.55" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Sand -->
+  <path d="M0 520 C220 560, 420 545, 620 580 C840 620, 980 620, 1200 590 L1200 720 L0 720 Z" fill="url(#sand)"/>
+
+  <!-- Court lines (subtle) -->
+  <rect x="170" y="560" width="520" height="120" rx="18" fill="#ffffff" opacity="0.18"/>
+  <rect x="190" y="578" width="480" height="86" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="6"/>
+  <line x1="430" y1="578" x2="430" y2="664" stroke="#ffffff" stroke-opacity="0.3" stroke-width="6"/>
+
+  <!-- Calendar icon -->
+  <g transform="translate(760,430)">
+    <rect x="0" y="0" width="330" height="230" rx="28" fill="#ffffff" opacity="0.95"/>
+    <rect x="0" y="0" width="330" height="70" rx="28" fill="#0053A6" opacity="0.98"/>
+    <circle cx="70" cy="36" r="10" fill="#FFC436"/>
+    <circle cx="260" cy="36" r="10" fill="#FFC436"/>
+    <g fill="#012749" opacity="0.9">
+      <rect x="40" y="96" width="70" height="46" rx="10"/>
+      <rect x="130" y="96" width="70" height="46" rx="10" opacity="0.85"/>
+      <rect x="220" y="96" width="70" height="46" rx="10" opacity="0.7"/>
+      <rect x="40" y="156" width="70" height="46" rx="10" opacity="0.85"/>
+      <rect x="130" y="156" width="70" height="46" rx="10" opacity="0.7"/>
+      <rect x="220" y="156" width="70" height="46" rx="10" opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- Text badge -->
+  <g transform="translate(70,70)">
+    <rect x="0" y="0" width="520" height="64" rx="32" fill="#012749" opacity="0.9"/>
+    <text x="28" y="42" font-family="Poppins, Arial, sans-serif" font-size="26" font-weight="700" fill="#FFC436">Reserva online • Locação avulsa</text>
+  </g>
+</svg>

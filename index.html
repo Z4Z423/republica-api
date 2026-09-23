@@ -58,12 +58,9 @@
     <section class="hero">
       <div class="hero-grid">
         <div class="hero-left">
-          <div class="badge">🏖️ <strong style="color:var(--azul)">Nova experiência de areia em SJP</strong></div>
-          <h1>Sua <span>quadra oficial</span><br/>de esportes de areia</h1>
-          <p class="hero-sub">
-            Beach Tennis, Vôlei de Praia e <strong>Futevôlei</strong> com estrutura profissional,
-            ambiente família e bar para aquele pós‑jogo perfeito.
-          </p>
+          <div class="badge">🏖️ <strong id="siteHeroBadge" style="color:var(--azul)">Nova experiência de areia em SJP</strong></div>
+          <h1 id="siteHeroTitle">Sua quadra oficial de esportes de areia</h1>
+          <p class="hero-sub" id="siteHeroSubtitle">Beach Tennis, Vôlei de Praia e Futevôlei com estrutura profissional, ambiente família e bar para aquele pós-jogo perfeito.</p>
 
           <div class="hero-actions">
             <button class="btn-outline" type="button" onclick="abrirWhatsTipo('reserva_mensal')">📅 Reserva mensal</button>
@@ -119,7 +116,7 @@
         <div class="badge">Quem Somos</div>
         <h2>Sobre a República da Praia</h2>
         <p>Esporte, convivência e experiência em um único lugar.</p>
-        <p class="hero-sub" style="max-width:880px;margin:10px auto 0;line-height:1.6;">Localizada no centro da cidade de São José dos Pinhais, a República da Praia é um ambiente esportivo acolhedor e familiar onde é realizada a prática de esportes de areia. Dentre esses esportes estão o Futevôlei, Beach Tennis (Tênis de Areia) e Vôlei de Areia. O complexo conta com duas quadras de areia nas medidas oficiais e com uma estrutura de bar e vestiário.<br/><br/>O espaço da República pode ser alugado para jogos (horários individuais) de 1 ou 2 horas.<br/>A República também conta com aulas em grupo dos esportes citados anteriormente. As turmas são montadas e niveladas de acordo com o nível de cada jogador, e os professores são treinados para atender as habilidades específicas de seus alunos.</p>
+        <p id="siteAboutText" class="hero-sub" style="max-width:880px;margin:10px auto 0;line-height:1.6;">Localizada no centro da cidade de São José dos Pinhais, a República da Praia é um ambiente esportivo acolhedor e familiar onde é realizada a prática de esportes de areia. Dentre esses esportes estão o Futevôlei, Beach Tennis (Tênis de Areia) e Vôlei de Areia. O complexo conta com duas quadras de areia nas medidas oficiais e com uma estrutura de bar e vestiário.<br/><br/>O espaço da República pode ser alugado para jogos (horários individuais) de 1 ou 2 horas.<br/>A República também conta com aulas em grupo dos esportes citados anteriormente. As turmas são montadas e niveladas de acordo com o nível de cada jogador, e os professores são treinados para atender as habilidades específicas de seus alunos.</p>
       </div>
 
       <div class="grid-3">
@@ -163,21 +160,21 @@
       </div>
 
       <div class="grid-3">
-        <article class="card reveal mod-card">
+        <article class="card reveal mod-card" data-modality-id="beach">
           <div class="media"><img src="assets/galeria/jogo.jpeg" alt="Beach Tennis"></div>
           <div class="body mod-body">
             <h3>Beach Tennis</h3>
           </div>
         </article>
 
-        <article class="card reveal mod-card">
+        <article class="card reveal mod-card" data-modality-id="volei">
           <div class="media"><img src="assets/galeria/galeria-13.jpeg" alt="Vôlei de Praia"></div>
           <div class="body mod-body">
             <h3>Vôlei de Praia</h3>
           </div>
         </article>
 
-        <article class="card reveal mod-card">
+        <article class="card reveal mod-card" data-modality-id="futevolei">
           <div class="media"><img src="assets/galeria/prof davi.jpeg" alt="Futevôlei"></div>
           <div class="body mod-body">
             <h3>Futevôlei</h3>
@@ -419,7 +416,7 @@
   </div>
 
   <div class="grid-3">
-    <div class="card reveal">
+    <div class="card reveal class-card" data-class-card="beach">
       <div class="media"><img src="assets/galeria/beach.jpeg" alt="Aulas Beach Tennis"></div>
       <div class="body">
         <h3>🎾 <span data-class-title="beach">Beach Tennis</span></h3>
@@ -450,7 +447,7 @@
       </div>
     </div>
 
-    <div class="card reveal">
+    <div class="card reveal class-card" data-class-card="volei">
       <div class="media"><img src="assets/galeria/aula de volei.jpeg" alt="Aulas Vôlei de Praia"></div>
       <div class="body">
         <h3>🏐 <span data-class-title="volei">Vôlei de Praia</span></h3>
@@ -493,7 +490,7 @@
       </div>
     </div>
 
-    <div class="card reveal">
+    <div class="card reveal class-card" data-class-card="futevolei">
       <div class="media"><img src="assets/galeria/futevolei.jpeg" alt="Aulas Futevôlei"></div>
       <div class="body">
         <h3>⚽ <span data-class-title="futevolei">Futevôlei</span></h3>
@@ -936,7 +933,7 @@
 
 
 
-  <script src="js/app.js?v=20260429-warmup" defer></script>
-  <script src="js/classes.js?v=20260923" defer></script>
+  <script src="js/app.js?v=20260923-admin-content" defer></script>
+  <script src="js/classes.js?v=20260923-admin-content" defer></script>
 </body>
 </html>
