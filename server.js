@@ -82,10 +82,24 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
 const USERS_FILE = path.join(process.cwd(), 'users.json');
-const DATA_DIR = process.env.DATA_DIR || process.cwd();
+const DATA_DIR_ENV = String(process.env.DATA_DIR || '').trim();
+const IS_RENDER = Boolean(process.env.RENDER_SERVICE_ID);
+const STORAGE_READY = !IS_RENDER || Boolean(DATA_DIR_ENV);
+const DATA_DIR = DATA_DIR_ENV || process.cwd();
 const CLASS_SETTINGS_FILE = path.join(DATA_DIR, 'class-settings.json');
 const SITE_SETTINGS_FILE = path.join(DATA_DIR, 'site-settings.json');
 const GALLERY_DIR = path.join(DATA_DIR, 'gallery');
+if(DATA_DIR_ENV && path.resolve(DATA_DIR) !== path.resolve(process.cwd())){
+  try{
+    fs.mkdirSync(DATA_DIR, { recursive:true });
+    for(const filename of ['class-settings.json','site-settings.json']){
+      const oldPath=path.join(process.cwd(),filename), newPath=path.join(DATA_DIR,filename);
+      if(!fs.existsSync(newPath) && fs.existsSync(oldPath)) fs.copyFileSync(oldPath,newPath);
+    }
+    const oldGallery=path.join(process.cwd(),'gallery');
+    if(!fs.existsSync(GALLERY_DIR) && fs.existsSync(oldGallery)) fs.cpSync(oldGallery,GALLERY_DIR,{recursive:true});
+  }catch(error){ console.error('Não foi possível migrar as configurações antigas para DATA_DIR:',error); }
+}
 app.use('/media/gallery', express.static(GALLERY_DIR, { maxAge: '7d', immutable: true }));
 
 const DEFAULT_CLASS_SETTINGS = {
@@ -126,6 +140,12 @@ const DEFAULT_SITE_SETTINGS = {
   heroTitle: 'Sua quadra oficial de esportes de areia',
   heroSubtitle: 'Beach Tennis, Vôlei de Praia e Futevôlei com estrutura profissional, ambiente família e bar para aquele pós-jogo perfeito.',
   aboutText: 'Localizada no centro da cidade de São José dos Pinhais, a República da Praia é um ambiente esportivo acolhedor e familiar onde é realizada a prática de esportes de areia. Dentre esses esportes estão o Futevôlei, Beach Tennis (Tênis de Areia) e Vôlei de Areia. O complexo conta com duas quadras de areia nas medidas oficiais e com uma estrutura de bar e vestiário.\n\nO espaço da República pode ser alugado para jogos (horários individuais) de 1 ou 2 horas. A República também conta com aulas em grupo dos esportes citados anteriormente. As turmas são montadas e niveladas de acordo com o nível de cada jogador, e os professores são treinados para atender as habilidades específicas de seus alunos.',
+  rental: {
+    weekday: { start:'17:00', end:'23:00', price1:100, price2:180 },
+    weekend: { start:'09:00', end:'19:00', price1:100, price2:180 },
+    fridayPromo: { enabled:true, title:'🎉 Sexta com desconto', text:'Promoção válida todas as sextas na locação avulsa.', price1:80, price2:150, original1:100, original2:180 },
+    monthly: [{ label:'1 Hora/sem', price:350 }, { label:'2 Horas/sem', price:650 }]
+  },
   gallery: [
     { src:'assets/galeria/galeria-09.jpeg', caption:'Bar & Atendimento' },
     { src:'assets/galeria/galeria-08.jpeg', caption:'Geladeiras & Bebidas' },
@@ -141,7 +161,7 @@ function readSiteSettings(){
   try{
     if(!fs.existsSync(SITE_SETTINGS_FILE)) return DEFAULT_SITE_SETTINGS;
     const parsed = JSON.parse(fs.readFileSync(SITE_SETTINGS_FILE, 'utf8'));
-    return { ...DEFAULT_SITE_SETTINGS, ...parsed, gallery: Array.isArray(parsed.gallery) ? parsed.gallery : DEFAULT_SITE_SETTINGS.gallery };
+    return { ...DEFAULT_SITE_SETTINGS, ...parsed, gallery: Array.isArray(parsed.gallery) ? parsed.gallery : DEFAULT_SITE_SETTINGS.gallery, rental: { ...DEFAULT_SITE_SETTINGS.rental, ...(parsed.rental || {}), weekday: { ...DEFAULT_SITE_SETTINGS.rental.weekday, ...(parsed.rental?.weekday || {}) }, weekend: { ...DEFAULT_SITE_SETTINGS.rental.weekend, ...(parsed.rental?.weekend || {}) }, fridayPromo: { ...DEFAULT_SITE_SETTINGS.rental.fridayPromo, ...(parsed.rental?.fridayPromo || {}) }, monthly: Array.isArray(parsed.rental?.monthly) ? parsed.rental.monthly : DEFAULT_SITE_SETTINGS.rental.monthly } };
   }catch{ return DEFAULT_SITE_SETTINGS; }
 }
 function validateSiteSettings(value){
@@ -149,6 +169,19 @@ function validateSiteSettings(value){
   for(const key of ['heroBadge','heroTitle','heroSubtitle','aboutText']){
     if(typeof value[key] !== 'string' || value[key].length > 1500) return 'Confira os textos do site (limite de 1.500 caracteres por campo).';
   }
+  const rental = value.rental;
+  if(!rental || typeof rental !== 'object') return 'Confira as configurações da locação avulsa.';
+  const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  for(const key of ['weekday','weekend']){
+    const period = rental[key];
+    if(!period || !validTime(period.start) || !validTime(period.end) || period.start >= period.end) return 'Confira os horários de abertura e fechamento da locação.';
+    for(const field of ['price1','price2']) if(!Number.isFinite(Number(period[field])) || Number(period[field]) < 0 || Number(period[field]) > 100000) return 'Confira os preços da locação avulsa.';
+  }
+  const promo = rental.fridayPromo;
+  if(!promo || typeof promo.enabled !== 'boolean' || typeof promo.title !== 'string' || promo.title.length > 100 || typeof promo.text !== 'string' || promo.text.length > 300) return 'Confira a promoção de sexta-feira.';
+  for(const field of ['price1','price2','original1','original2']) if(!Number.isFinite(Number(promo[field])) || Number(promo[field]) < 0 || Number(promo[field]) > 100000) return 'Confira os valores da promoção de sexta-feira.';
+  if(!Array.isArray(rental.monthly) || rental.monthly.length > 12) return 'Informe até 12 opções de mensalidade.';
+  for(const plan of rental.monthly) if(!plan || typeof plan.label !== 'string' || !plan.label.trim() || plan.label.length > 60 || !Number.isFinite(Number(plan.price)) || Number(plan.price) < 0 || Number(plan.price) > 100000) return 'Confira as opções de mensalidade.';
   if(!Array.isArray(value.gallery) || value.gallery.length < 1 || value.gallery.length > 30) return 'A galeria precisa ter de 1 a 30 fotos.';
   for(const photo of value.gallery){
     if(!photo || typeof photo.src !== 'string' || photo.src.length > 300 || !/^(assets\/galeria\/[\w .()\-]+\.(?:jpe?g|png|webp)|media\/gallery\/[a-f0-9-]+\.(?:jpe?g|png|webp))$/i.test(photo.src)) return 'Imagem inválida na galeria.';
@@ -202,6 +235,13 @@ function adminAuth(req, res, next){
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if(!verifyAdminToken(token)){
     return res.status(401).json({ error: 'Não autorizado' });
+  }
+  next();
+}
+
+function requirePersistentStorage(req, res, next){
+  if(!STORAGE_READY){
+    return res.status(503).json({ error:'O Render está sem armazenamento persistente. Crie um disco no serviço, monte em /var/data e configure DATA_DIR=/var/data. Nenhuma alteração foi gravada.' });
   }
   next();
 }
@@ -304,16 +344,16 @@ function isWeekend(dateStr){
   return dow === 0 || dow === 6;
 }
 
-// Seg-Sex 17:00–23:00 | Sáb-Dom 09:00–19:00
+// Horários de locação configurados no painel; os slots também alimentam o fluxo de reservas.
 function generateSlots(dateISO, durationMinutes){
-  const weekend = isWeekend(String(dateISO || ''));
-  const startHour = weekend ? 9 : 17;
-  const endHour = weekend ? 19 : 23;
-
+  const rental = readSiteSettings().rental;
+  const period = isWeekend(String(dateISO || '')) ? rental.weekend : rental.weekday;
+  const [startHour,startMinute] = period.start.split(':').map(Number);
+  const [endHour,endMinute] = period.end.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
   const slots = [];
-  const lastStart = endHour * 60 - durationMinutes;
-
-  for(let t = startHour * 60; t <= lastStart; t += 60){
+  for(let t = startMinutes; t + durationMinutes <= endMinutes; t += 60){
     const sh = Math.floor(t / 60), sm = t % 60;
     const eh = Math.floor((t + durationMinutes) / 60), em = (t + durationMinutes) % 60;
     slots.push({ start: `${pad(sh)}:${pad(sm)}`, end: `${pad(eh)}:${pad(em)}` });
@@ -860,7 +900,8 @@ app.get('/api/admin/me', adminAuth, (req, res) => {
 // Conteúdo editável do site e envio de fotos da galeria.
 app.get('/api/site-settings', (req, res) => res.json(readSiteSettings()));
 app.get('/api/admin/site-settings', adminAuth, (req, res) => res.json(readSiteSettings()));
-app.put('/api/admin/site-settings', adminAuth, (req, res) => {
+app.get('/api/admin/storage-status', adminAuth, (req, res) => res.json({ persistent: STORAGE_READY, dataDirConfigured: Boolean(DATA_DIR_ENV), message: STORAGE_READY ? 'Armazenamento configurado.' : 'Configure um disco persistente do Render em /var/data e defina DATA_DIR=/var/data.' }));
+app.put('/api/admin/site-settings', adminAuth, requirePersistentStorage, (req, res) => {
   const settings = req.body;
   const validationError = validateSiteSettings(settings);
   if(validationError) return res.status(400).json({ error:validationError });
@@ -875,7 +916,7 @@ app.put('/api/admin/site-settings', adminAuth, (req, res) => {
     return res.status(500).json({ error:'Não foi possível salvar o conteúdo do site.' });
   }
 });
-app.post('/api/admin/gallery-image', adminAuth, (req, res) => {
+app.post('/api/admin/gallery-image', adminAuth, requirePersistentStorage, (req, res) => {
   try{
     const dataUrl = String(req.body?.dataUrl || '');
     const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
@@ -902,7 +943,7 @@ app.get('/api/admin/classes', adminAuth, (req, res) => {
   return res.json(readClassSettings());
 });
 
-app.put('/api/admin/classes', adminAuth, (req, res) => {
+app.put('/api/admin/classes', adminAuth, requirePersistentStorage, (req, res) => {
   const settings = req.body;
   const validationError = validateClassSettings(settings);
   if(validationError) return res.status(400).json({ error:validationError });
