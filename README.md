@@ -86,6 +86,12 @@ No arquivo `index.html`, ajuste:
 API_BASE: "https://SUA-API-DO-RENDER.onrender.com"
 ```
 
+## Configurar aulas pelo painel
+
+O arquivo `admin-aulas.html` usa o mesmo login administrativo já configurado (`ADMIN_EMAIL` e `ADMIN_PASSWORD`). Nele, você pode alterar os preços, a frequência dos planos e os professores, dias e horários das modalidades. O site público carrega esses dados por `GET /api/classes`; as alterações autenticadas são gravadas em `class-settings.json`.
+
+Se hospedar o backend no Render, configure um disco persistente e defina `DATA_DIR` para o caminho de montagem desse disco (por exemplo, `/var/data`). Sem disco persistente, o arquivo local pode ser perdido quando a instância for recriada. O painel continua carregando os valores padrão do código até a primeira alteração salva.
+
 ## Como o bloqueio de quadra funciona
 
 - Eventos com "Quadra 1" ou "Q1" bloqueiam só a quadra 1

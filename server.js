@@ -5,37 +5,12 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
-
-// =========================
-// Persistência em disco
-// =========================
-const PRIMARY_DATA_DIR = process.env.DATA_DIR || '/var/data';
-const FALLBACK_DATA_DIR = path.join(__dirname, 'data');
-
-function ensureDirSync(dir){
-  try{
-    if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.accessSync(dir, fs.constants.R_OK | fs.constants.W_OK);
-    return true;
-  }catch(err){
-    console.error('Erro ao preparar diretório de dados:', dir, err);
-    return false;
-  }
-}
-
-const DATA_DIR = ensureDirSync(PRIMARY_DATA_DIR)
-  ? PRIMARY_DATA_DIR
-  : (ensureDirSync(FALLBACK_DATA_DIR) ? FALLBACK_DATA_DIR : PRIMARY_DATA_DIR);
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
@@ -106,47 +81,41 @@ function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
 // Arquivos / Auth local
 // =========================
 const AUTH_SECRET = process.env.AUTH_SECRET || 'troque-essa-chave-no-render';
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const CHAVEAMENTO_STATE_FILE = path.join(DATA_DIR, 'chaveamento-state.json');
-const DRE_LANCAMENTOS_FILE = path.join(DATA_DIR, 'dre-lancamentos.json');
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+const CLASS_SETTINGS_FILE = path.join(process.env.DATA_DIR || process.cwd(), 'class-settings.json');
 
-function readJsonFile(filePath, fallback){
+const DEFAULT_CLASS_SETTINGS = {
+  classes: [
+    { id:'beach', name:'Beach Tennis', schedules:[{ teacher:'Ricardo Antunes', days:'Segunda e Quarta', time:'18:00' }], plans:[{ label:'1x/semana', price:225 },{ label:'2x/semana', price:365 }] },
+    { id:'volei', name:'Vôlei de Praia', schedules:[{ teacher:'Leo', days:'Segunda e Quinta', time:'19:00' },{ teacher:'Goran', days:'Terça e Sexta', time:'19:00' }], plans:[{ label:'1x/semana', price:190 },{ label:'2x/semana', price:240 },{ label:'3x/semana', price:350 },{ label:'4x/semana', price:460 }] },
+    { id:'futevolei', name:'Futevôlei', schedules:[{ teacher:'Davi (Fixo)', days:'A confirmar', time:'' },{ teacher:'Lapiseira (2x/mês)', days:'Terça e Quinta', time:'18:30' }], plans:[{ label:'1x/semana', price:150 },{ label:'2x/semana', price:220 }] }
+  ]
+};
+
+function readClassSettings(){
   try{
-    if(!fs.existsSync(filePath)) return fallback;
-    const raw = fs.readFileSync(filePath, 'utf8');
-    if(!raw) return fallback;
-    return JSON.parse(raw);
-  }catch(err){
-    console.error(`Erro ao ler ${path.basename(filePath)}:`, err);
-    return fallback;
+    if(!fs.existsSync(CLASS_SETTINGS_FILE)) return DEFAULT_CLASS_SETTINGS;
+    const parsed = JSON.parse(fs.readFileSync(CLASS_SETTINGS_FILE, 'utf8'));
+    return Array.isArray(parsed?.classes) ? parsed : DEFAULT_CLASS_SETTINGS;
+  }catch{ return DEFAULT_CLASS_SETTINGS; }
+}
+
+function validateClassSettings(value){
+  if(!value || !Array.isArray(value.classes) || value.classes.length < 1 || value.classes.length > 12) return 'Informe de 1 a 12 modalidades.';
+  const ids = new Set();
+  for(const item of value.classes){
+    if(!item || !/^[a-z0-9_-]{1,40}$/i.test(String(item.id||'')) || ids.has(item.id)) return 'Cada modalidade precisa ter um identificador único.';
+    ids.add(item.id);
+    if(!String(item.name||'').trim() || String(item.name).length > 80) return 'Informe um nome válido para cada modalidade.';
+    if(!Array.isArray(item.schedules) || item.schedules.length > 20 || !Array.isArray(item.plans) || item.plans.length > 20) return 'Confira a quantidade de horários e planos.';
+    for(const schedule of item.schedules){
+      if(!String(schedule.teacher||'').trim() || String(schedule.teacher).length > 100 || !String(schedule.days||'').trim() || String(schedule.days).length > 120 || (String(schedule.time||'') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(schedule.time)))) return 'Confira professor, dias da semana e horário.';
+    }
+    for(const plan of item.plans){
+      if(!String(plan.label||'').trim() || String(plan.label).length > 50 || !Number.isFinite(Number(plan.price)) || Number(plan.price) < 0 || Number(plan.price) > 100000) return 'Confira a frequência e o preço de cada plano.';
+    }
   }
-}
-
-function writeJsonFile(filePath, data){
-  ensureDirSync(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function readChaveamentoState(){
-  return readJsonFile(CHAVEAMENTO_STATE_FILE, null);
-}
-
-function writeChaveamentoState(data){
-  const payload = {
-    savedAt: new Date().toISOString(),
-    data
-  };
-  writeJsonFile(CHAVEAMENTO_STATE_FILE, payload);
-  return payload;
-}
-
-function readDreLancamentos(){
-  const data = readJsonFile(DRE_LANCAMENTOS_FILE, []);
-  return Array.isArray(data) ? data : [];
-}
-
-function writeDreLancamentos(items){
-  writeJsonFile(DRE_LANCAMENTOS_FILE, Array.isArray(items) ? items : []);
+  return '';
 }
 
 // =========================
@@ -199,12 +168,18 @@ function adminAuth(req, res, next){
 }
 
 function readUsers(){
-  const arr = readJsonFile(USERS_FILE, []);
-  return Array.isArray(arr) ? arr : [];
+  try{
+    if(!fs.existsSync(USERS_FILE)) return [];
+    const raw = fs.readFileSync(USERS_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  }catch{
+    return [];
+  }
 }
 
 function writeUsers(users){
-  writeJsonFile(USERS_FILE, users);
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
 }
 
 function hashPassword(password){
@@ -448,48 +423,6 @@ function computeAvailability(events, duration, date){
   return out;
 }
 
-function sortLancamentosDesc(items){
-  return [...items].sort((a, b) => {
-    const ad = String(a?.data || '');
-    const bd = String(b?.data || '');
-    if(ad !== bd) return bd.localeCompare(ad);
-    return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
-  });
-}
-
-function normalizeLancamento(input){
-  const raw = input && typeof input === 'object' ? input : {};
-  const tipo = String(raw.tipo || raw.grupo || '').trim();
-  const secao = String(raw.secao || raw.subcategoria || '').trim();
-  const observacoes = String(raw.observacoes || raw.obs || '').trim();
-  const pagamento = String(raw.pagamento || '').trim();
-  const destino = String(raw.destino || 'gerencial').trim() || 'gerencial';
-  const anexos = Array.isArray(raw.anexos) ? raw.anexos : [];
-
-  return {
-    id: raw.id || crypto.randomUUID(),
-    data: String(raw.data || '').trim(),
-    tipo,
-    grupo: tipo,
-    secao,
-    categoria: String(raw.categoria || '').trim(),
-    subcategoria: secao,
-    descricao: String(raw.descricao || '').trim(),
-    valor: Number(raw.valor || 0),
-    unidade: String(raw.unidade || '').trim(),
-    painel: String(raw.painel || '').trim(),
-    competencia: String(raw.competencia || '').trim(),
-    observacoes,
-    obs: observacoes,
-    pagamento,
-    anexos,
-    destino,
-    competenciaManual: Boolean(raw.competenciaManual),
-    createdAt: raw.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-}
-
 // =========================
 // Health
 // =========================
@@ -498,7 +431,7 @@ app.get('/health', async (req, res) => {
   if(missing.length){
     return res.status(500).json({ ok:false, error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
   }
-  return res.json({ ok:true, dataDir: DATA_DIR });
+  return res.json({ ok:true });
 });
 
 // =========================
@@ -853,126 +786,6 @@ app.get('/api/my_reservations', async (req,res)=>{
 });
 
 // =========================
-// Chaveamento sincronizado
-// =========================
-app.get('/api/chaveamento/state', (req, res) => {
-  try{
-    const payload = readChaveamentoState();
-    return res.json({
-      ok: true,
-      savedAt: payload?.savedAt || null,
-      data: payload?.data || null
-    });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao carregar estado do chaveamento.' });
-  }
-});
-
-app.post('/api/chaveamento/state', (req, res) => {
-  try{
-    const data = req.body;
-    if(!data || typeof data !== 'object' || Array.isArray(data)){
-      return res.status(400).json({ error:'Payload inválido.' });
-    }
-
-    const payload = writeChaveamentoState(data);
-    return res.json({
-      ok: true,
-      savedAt: payload.savedAt
-    });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao salvar estado do chaveamento.' });
-  }
-});
-
-// =========================
-// DRE / Lançamentos do admin
-// =========================
-app.get('/api/dre/lancamentos', (req, res) => {
-  try{
-    const items = sortLancamentosDesc(readDreLancamentos());
-    return res.json({ ok: true, lancamentos: items });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao carregar lançamentos.' });
-  }
-});
-
-app.post('/api/dre/lancamentos', (req, res) => {
-  try{
-    const payload = req.body;
-
-    if(Array.isArray(payload)){
-      const normalizados = payload.map(normalizeLancamento);
-      writeDreLancamentos(normalizados);
-      return res.json({ ok:true, lancamentos: sortLancamentosDesc(normalizados) });
-    }
-
-    const item = normalizeLancamento(payload);
-    if(!item.data){
-      return res.status(400).json({ error:'Campo data é obrigatório.' });
-    }
-    if(!item.tipo && !item.grupo){
-      return res.status(400).json({ error:'Campo grupo/tipo é obrigatório.' });
-    }
-    if(!Number.isFinite(item.valor)){
-      return res.status(400).json({ error:'Campo valor inválido.' });
-    }
-
-    const items = readDreLancamentos();
-    const idx = items.findIndex(x => x.id === item.id);
-
-    if(idx >= 0){
-      item.createdAt = items[idx].createdAt || item.createdAt;
-      items[idx] = item;
-    }else{
-      items.push(item);
-    }
-
-    writeDreLancamentos(items);
-    return res.json({ ok:true, lancamento:item, lancamentos: sortLancamentosDesc(items) });
-  }catch(e){
-    console.error(e);
-    const msg = String(e?.message || '');
-    if(msg.includes('EACCES') || msg.includes('EROFS') || msg.includes('permission')){
-      return res.status(500).json({ error:`Erro ao salvar lançamento. Pasta de dados sem permissão: ${DATA_DIR}` });
-    }
-    if(msg.includes('ENOSPC')){
-      return res.status(500).json({ error:'Erro ao salvar lançamento. Espaço em disco insuficiente.' });
-    }
-    return res.status(500).json({ error:`Erro ao salvar lançamento. ${msg || 'Falha interna.'}` });
-  }
-});
-
-app.delete('/api/dre/lancamentos/:id', (req, res) => {
-  try{
-    const id = String(req.params.id || '').trim();
-    if(!id) return res.status(400).json({ error:'ID inválido.' });
-
-    const items = readDreLancamentos();
-    const filtered = items.filter(x => String(x.id) !== id);
-    writeDreLancamentos(filtered);
-
-    return res.json({ ok:true, lancamentos: sortLancamentosDesc(filtered) });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao excluir lançamento.' });
-  }
-});
-
-app.delete('/api/dre/lancamentos', (req, res) => {
-  try{
-    writeDreLancamentos([]);
-    return res.json({ ok:true, lancamentos: [] });
-  }catch(e){
-    console.error(e);
-    return res.status(500).json({ error:'Erro ao limpar lançamentos.' });
-  }
-});
-
-// =========================
 // Admin login / sessão
 // =========================
 app.post('/api/admin/login', (req, res) => {
@@ -1003,6 +816,31 @@ app.post('/api/admin/login', (req, res) => {
 
 app.get('/api/admin/me', adminAuth, (req, res) => {
   return res.json({ ok:true, admin:{ email: ADMIN_EMAIL } });
+});
+
+// Dados públicos das aulas; apenas o administrador autenticado pode alterar.
+app.get('/api/classes', (req, res) => {
+  return res.json(readClassSettings());
+});
+
+app.get('/api/admin/classes', adminAuth, (req, res) => {
+  return res.json(readClassSettings());
+});
+
+app.put('/api/admin/classes', adminAuth, (req, res) => {
+  const settings = req.body;
+  const validationError = validateClassSettings(settings);
+  if(validationError) return res.status(400).json({ error:validationError });
+  try{
+    fs.mkdirSync(path.dirname(CLASS_SETTINGS_FILE), { recursive:true });
+    const temporaryFile = `${CLASS_SETTINGS_FILE}.tmp`;
+    fs.writeFileSync(temporaryFile, JSON.stringify(settings, null, 2), 'utf8');
+    fs.renameSync(temporaryFile, CLASS_SETTINGS_FILE);
+    return res.json({ ok:true, settings });
+  }catch(e){
+    console.error(e);
+    return res.status(500).json({ error:'Não foi possível salvar as configurações das aulas.' });
+  }
 });
 
 // =========================
@@ -1114,9 +952,7 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
       stats: {
         totalUsers: users.length,
         totalReservationsFuture: reservationsCount,
-        totalLancamentosDRE: readDreLancamentos().length,
-        adminEmail: ADMIN_EMAIL,
-        dataDir: DATA_DIR
+        adminEmail: ADMIN_EMAIL
       }
     });
   }catch(e){
@@ -1127,5 +963,4 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
-  console.log(`Persistindo arquivos em: ${DATA_DIR}`);
 });
