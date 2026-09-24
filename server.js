@@ -456,7 +456,7 @@ function isoToMinutes(iso){
   }
 }
 
-function computeAvailability(events, duration, date){
+function computeAvailability(events, duration, date, requestedCourt = null){
   const baseSlots = generateSlots(date, duration);
   const out = baseSlots.map(s => ({ ...s, availableCourts: 2 }));
 
@@ -494,9 +494,16 @@ function computeAvailability(events, duration, date){
       }
     }
 
-    const remainingAfterKnown = Math.max(0, 2 - busyKnown.size);
-    const unknownConsumes = Math.min(unknownCount, remainingAfterKnown);
-    slot.availableCourts = Math.max(0, remainingAfterKnown - unknownConsumes);
+    if(requestedCourt){
+      // Sem identificação de quadra em um evento existente, bloqueamos a seleção específica
+      // para evitar confirmar duas reservas na mesma quadra.
+      slot.availableCourts = busyKnown.has(requestedCourt) || unknownCount > 0 ? 0 : 1;
+      slot.court = requestedCourt;
+    }else{
+      const remainingAfterKnown = Math.max(0, 2 - busyKnown.size);
+      const unknownConsumes = Math.min(unknownCount, remainingAfterKnown);
+      slot.availableCourts = Math.max(0, remainingAfterKnown - unknownConsumes);
+    }
   }
 
   return out;
@@ -525,13 +532,15 @@ app.get('/api/slots', async (req,res)=>{
 
     const date = String(req.query.date || '');
     const duration = Number(req.query.duration || 60);
+    const requestedCourt = req.query.court == null || req.query.court === '' ? null : Number(req.query.court);
 
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
     if(![60,120].includes(duration)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
+    if(requestedCourt !== null && ![1,2].includes(requestedCourt)) return res.status(400).json({ error:'court inválida (use 1 para aberta ou 2 para coberta)' });
 
     await ensureAuth();
     const events = await listEventsForDay(date);
-    const slots = computeAvailability(events, duration, date);
+    const slots = computeAvailability(events, duration, date, requestedCourt);
 
     res.json({ date, duration, slots });
   }catch(e){
@@ -548,12 +557,14 @@ app.post('/api/book', async (req,res)=>{
     }
 
     const { date, start, duration, name, phone } = req.body || {};
+    const requestedCourt = req.body?.court == null || req.body?.court === '' ? null : Number(req.body.court);
 
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
     if(!/^\d{2}:\d{2}$/.test(String(start || ''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
 
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
+    if(requestedCourt !== null && ![1,2].includes(requestedCourt)) return res.status(400).json({ error:'court inválida (use 1 para aberta ou 2 para coberta)' });
     if(!String(name || '').trim() || !String(phone || '').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
 
     const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
@@ -598,12 +609,16 @@ app.post('/api/book', async (req,res)=>{
     }
 
     const totalBusy = Math.min(2, busyKnown.size + unknownCount);
-    if(totalBusy >= 2){
+    if(requestedCourt){
+      if(busyKnown.has(requestedCourt) || unknownCount > 0){
+        return res.status(409).json({ error:'A quadra selecionada ficou indisponível. Escolha outro horário ou a outra quadra.' });
+      }
+    }else if(totalBusy >= 2){
       return res.status(409).json({ error:'Esse horário está lotado (2 quadras ocupadas).' });
     }
 
     const freeCourts = [1,2].filter(c => !busyKnown.has(c));
-    const chosen = freeCourts[0] ?? 1;
+    const chosen = requestedCourt || freeCourts[0] || 1;
 
     const summary = `Locação Avulsa — Quadra ${chosen}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
@@ -625,7 +640,7 @@ app.post('/api/book', async (req,res)=>{
 
     return res.json({
       ok: true,
-      court: `Quadra ${chosen}`,
+      court: `Quadra ${chosen} — ${chosen === 2 ? 'coberta' : 'aberta'}`,
       start,
       end,
       eventId: created.data.id
