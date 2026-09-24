@@ -384,8 +384,8 @@ try{
 function classifyEventToCourts(ev){
   const text = `${ev.summary || ''} ${ev.description || ''} ${ev.location || ''}`.toLowerCase();
 
-  const q1 = text.includes('quadra 1') || text.includes('q1') || text.includes('quadra1');
-  const q2 = text.includes('quadra 2') || text.includes('q2') || text.includes('quadra2');
+  const q1 = text.includes('quadra 1') || text.includes('q1') || text.includes('quadra1') || text.includes('quadra aberta') || text.includes('quadra descoberta');
+  const q2 = text.includes('quadra 2') || text.includes('q2') || text.includes('quadra2') || text.includes('quadra coberta');
 
   if(q1 && !q2) return { kind:'known', courts:[1], blockBoth:false };
   if(q2 && !q1) return { kind:'known', courts:[2], blockBoth:false };
@@ -469,6 +469,11 @@ function computeAvailability(events, duration, date, requestedCourt = null){
 
     for(const ev of events){
       if(String(ev.start).length <= 10){
+        const cls = classifyEventToCourts(ev);
+        if(cls.kind === 'known' && !cls.blockBoth){
+          cls.courts.forEach(c => busyKnown.add(c));
+          continue;
+        }
         busyKnown = new Set([1,2]);
         unknownCount = 0;
         break;
@@ -589,14 +594,18 @@ app.post('/api/book', async (req,res)=>{
       return overlaps(startMin, endMin, evStartMin, evEndMin);
     });
 
-    if(slotEvents.some(ev => String(ev.start).length <= 10)){
-      return res.status(409).json({ error:'Esse horário está indisponível.' });
-    }
-
     const busyKnown = new Set();
     let unknownCount = 0;
 
     for(const ev of slotEvents){
+      if(String(ev.start).length <= 10){
+        const cls = classifyEventToCourts(ev);
+        if(cls.kind === 'known' && !cls.blockBoth){
+          cls.courts.forEach(c => busyKnown.add(c));
+          continue;
+        }
+        return res.status(409).json({ error:'Esse horário está indisponível.' });
+      }
       const cls = classifyEventToCourts(ev);
       if(cls.blockBoth){
         return res.status(409).json({ error:'Esse horário está indisponível.' });
