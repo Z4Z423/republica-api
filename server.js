@@ -285,6 +285,18 @@ function extractCustomerFromEvent(ev){
   return m ? m[1].trim() : '';
 }
 
+function courtLabel(court){
+  return Number(court) === 2 ? 'Quadra coberta' : 'Quadra aberta';
+}
+
+function courtLabelFromSummary(summary){
+  const text = String(summary || '');
+  if(/\bquadra\s*coberta\b/i.test(text)) return 'Quadra coberta';
+  if(/\bquadra\s*aberta\b/i.test(text)) return 'Quadra aberta';
+  const match = text.match(/\bquadra\s*([12])\b/i);
+  return match ? courtLabel(Number(match[1])) : '';
+}
+
 async function ensureAuth(){
   await jwtClient.authorize();
 }
@@ -629,7 +641,7 @@ app.post('/api/book', async (req,res)=>{
     const freeCourts = [1,2].filter(c => !busyKnown.has(c));
     const chosen = requestedCourt || freeCourts[0] || 1;
 
-    const summary = `Locação Avulsa — Quadra ${chosen}`;
+    const summary = `Locação Avulsa — ${courtLabel(chosen)}`;
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
@@ -649,7 +661,7 @@ app.post('/api/book', async (req,res)=>{
 
     return res.json({
       ok: true,
-      court: `Quadra ${chosen} — ${chosen === 2 ? 'coberta' : 'aberta'}`,
+      court: courtLabel(chosen),
       start,
       end,
       eventId: created.data.id
@@ -684,14 +696,14 @@ app.post('/api/cancel_lookup', async (req,res)=>{
       const date = String(r.start).slice(0,10);
       const hhmm = String(r.start).slice(11,16);
       const ehhmm = String(r.end).slice(11,16);
-      const courtMatch = String(r.summary || '').match(/Quadra\s*(\d)/i);
+      
 
       return {
         eventId: r.eventId,
         date,
         start: hhmm,
         end: ehhmm,
-        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
+        court: courtLabelFromSummary(r.summary),
         summary: r.summary || ''
       };
     });
@@ -869,14 +881,14 @@ app.get('/api/my_reservations', async (req,res)=>{
       const date = String(r.start).slice(0,10);
       const hhmm = String(r.start).slice(11,16);
       const ehhmm = String(r.end).slice(11,16);
-      const courtMatch = String(r.summary || '').match(/Quadra\s*(\d)/i);
+      
 
       return {
         eventId: r.eventId,
         date,
         start: hhmm,
         end: ehhmm,
-        court: courtMatch ? `Quadra ${courtMatch[1]}` : '',
+        court: courtLabelFromSummary(r.summary),
         summary: r.summary || ''
       };
     });
