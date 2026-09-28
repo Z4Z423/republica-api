@@ -88,6 +88,10 @@ function isValidCpf(value){
   };
   return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
 }
+function formatCpf(value){
+  const cpf = normalizeCpf(value);
+  return cpf.length === 11 ? `${cpf.slice(0,3)}.${cpf.slice(3,6)}.${cpf.slice(6,9)}-${cpf.slice(9)}` : cpf;
+}
 function cpfFingerprint(value){
   const secret = process.env.CPF_HASH_SECRET || AUTH_SECRET;
   return crypto.createHmac('sha256', secret).update(normalizeCpf(value)).digest('hex');
@@ -341,6 +345,7 @@ async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
     id: e.id,
     summary: e.summary || '',
     description: e.description || '',
+    cpfHash: e.extendedProperties?.private?.cpfHash || extractCpfFingerprint(e.description),
     location: e.location || '',
     start: e.start?.dateTime || e.start?.date || '',
     end: e.end?.dateTime || e.end?.date || ''
@@ -351,7 +356,7 @@ async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
     if(!ev.start || String(ev.start).length <= 10) continue; // ignora dia inteiro
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
-    const eventCpfHash = extractCpfFingerprint(ev.description);
+    const eventCpfHash = ev.cpfHash;
     if(ph === phoneDigits && (!cpfHash || eventCpfHash === cpfHash)){
       out.push({
         eventId: ev.id,
@@ -671,11 +676,12 @@ app.post('/api/book', async (req,res)=>{
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
     const customerName = String(name || '').trim() || 'Reserva pelo site';
-    const description = `Cliente: ${customerName}\nWhatsApp: ${phoneDigits}\nCPF-ID: ${cpfFingerprint(cpfDigits)}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
+    const description = `Cliente: ${customerName}\nWhatsApp: ${phoneDigits}\nCPF: ${formatCpf(cpfDigits)}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
       description,
+      extendedProperties: { private: { cpfHash: cpfFingerprint(cpfDigits) } },
       start: { dateTime: toDateTimeISO(String(date), String(start)), timeZone: TZ },
       end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
     };
@@ -776,7 +782,7 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       location: ev.data.location || ''
     });
 
-    const eventCpfHash = extractCpfFingerprint(ev.data.description);
+    const eventCpfHash = ev.data.extendedProperties?.private?.cpfHash || extractCpfFingerprint(ev.data.description);
     if(ph !== phoneDigits || (cpfHash && eventCpfHash !== cpfHash)){
       return res.status(403).json({ error: cpfHash ? 'O telefone e o CPF não conferem com a reserva.' : 'Este telefone não confere com a reserva.' });
     }
