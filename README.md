@@ -3,6 +3,7 @@
 Esta API conecta no Google Calendar e permite:
 - Listar horários disponíveis (capacidade 2 quadras por horário)
 - Criar reserva (evento no Google Calendar) para **Locação Avulsa** (1h ou 2h)
+- Reservar sem criar conta, usando WhatsApp e CPF válido; o CPF não é gravado em texto aberto no evento (fica apenas uma assinatura criptográfica para conferência).
 
 ## 1) Preparar Google Cloud (Service Account)
 

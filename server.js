@@ -76,6 +76,26 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
 function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
+function normalizeCpf(s){ return String(s || '').replace(/\D+/g, ''); }
+function isValidCpf(value){
+  const cpf = normalizeCpf(value);
+  if(!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
+  const digit = length => {
+    let sum = 0;
+    for(let i=0; i<length; i++) sum += Number(cpf[i]) * (length + 1 - i);
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+  return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
+}
+function cpfFingerprint(value){
+  const secret = process.env.CPF_HASH_SECRET || AUTH_SECRET;
+  return crypto.createHmac('sha256', secret).update(normalizeCpf(value)).digest('hex');
+}
+function extractCpfFingerprint(description){
+  const match = String(description || '').match(/CPF-ID:\s*([a-f0-9]{64})/i);
+  return match ? match[1].toLowerCase() : '';
+}
 
 // =========================
 // Arquivos / Auth local
@@ -301,7 +321,7 @@ async function ensureAuth(){
   await jwtClient.authorize();
 }
 
-async function listUpcomingReservationsByPhone(phoneDigits){
+async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
   await ensureAuth();
 
   const now = new Date();
@@ -331,12 +351,14 @@ async function listUpcomingReservationsByPhone(phoneDigits){
     if(!ev.start || String(ev.start).length <= 10) continue; // ignora dia inteiro
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
-    if(ph === phoneDigits){
+    const eventCpfHash = extractCpfFingerprint(ev.description);
+    if(ph === phoneDigits && (!cpfHash || eventCpfHash === cpfHash)){
       out.push({
         eventId: ev.id,
         summary: ev.summary,
         start: ev.start,
-        end: ev.end
+        end: ev.end,
+        cpfHash: eventCpfHash
       });
     }
   }
@@ -573,7 +595,7 @@ app.post('/api/book', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { date, start, duration, name, phone } = req.body || {};
+    const { date, start, duration, name, phone, cpf } = req.body || {};
     const requestedCourt = req.body?.court == null || req.body?.court === '' ? null : Number(req.body.court);
 
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
@@ -582,7 +604,10 @@ app.post('/api/book', async (req,res)=>{
     const dur = Number(duration || 60);
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(requestedCourt !== null && ![1,2].includes(requestedCourt)) return res.status(400).json({ error:'court inválida (use 1 para aberta ou 2 para coberta)' });
-    if(!String(name || '').trim() || !String(phone || '').trim()) return res.status(400).json({ error:'name e phone são obrigatórios' });
+    const phoneDigits = normalizePhone(phone);
+    const cpfDigits = normalizeCpf(cpf);
+    if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
+    if(!isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
 
     const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
@@ -645,7 +670,8 @@ app.post('/api/book', async (req,res)=>{
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
-    const description = `Cliente: ${name}\nWhatsApp: ${phone}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
+    const customerName = String(name || '').trim() || 'Reserva pelo site';
+    const description = `Cliente: ${customerName}\nWhatsApp: ${phoneDigits}\nCPF-ID: ${cpfFingerprint(cpfDigits)}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
@@ -682,11 +708,13 @@ app.post('/api/cancel_lookup', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { phone } = req.body || {};
+    const { phone, cpf } = req.body || {};
     const phoneDigits = normalizePhone(phone);
-    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+    const cpfDigits = normalizeCpf(cpf);
+    if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
+    if(!isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
 
-    const reservations = await listUpcomingReservationsByPhone(phoneDigits);
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits, cpfFingerprint(cpfDigits));
 
     if(!reservations.length){
       return res.json({ ok:true, reservations: [] });
@@ -722,13 +750,17 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { phone, eventId } = req.body || {};
+    const { phone, cpf, eventId } = req.body || {};
     const phoneDigits = normalizePhone(phone);
-    if(!phoneDigits) return res.status(400).json({ error:'phone é obrigatório' });
+    const cpfDigits = normalizeCpf(cpf);
+    if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
+    if(cpfDigits && !isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
+    // A página pública exige telefone + CPF. Mantém-se o fluxo antigo da área logada.
+    const cpfHash = cpfDigits ? cpfFingerprint(cpfDigits) : null;
 
     if(!eventId){
-      const list = await listUpcomingReservationsByPhone(phoneDigits);
-      if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse telefone.' });
+      const list = await listUpcomingReservationsByPhone(phoneDigits, cpfHash);
+      if(!list.length) return res.status(404).json({ error: cpfHash ? 'Nenhuma reserva encontrada para esses dados.' : 'Nenhuma reserva encontrada para esse telefone.' });
 
       const pick = list[0];
       await ensureAuth();
@@ -744,8 +776,9 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       location: ev.data.location || ''
     });
 
-    if(ph !== phoneDigits){
-      return res.status(403).json({ error:'Este telefone não confere com a reserva.' });
+    const eventCpfHash = extractCpfFingerprint(ev.data.description);
+    if(ph !== phoneDigits || (cpfHash && eventCpfHash !== cpfHash)){
+      return res.status(403).json({ error: cpfHash ? 'O telefone e o CPF não conferem com a reserva.' : 'Este telefone não confere com a reserva.' });
     }
 
     await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
