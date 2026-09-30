@@ -103,10 +103,3 @@ Sugestão: sempre nomear eventos manuais como:
 - `Aula Beach Tennis — Quadra 1`
 - `Aula Vôlei — Quadra 2`
 
-## Pagamento adiantado da quadra coberta
-
-A quadra coberta usa cobrança Pix da Woovi. O cliente paga o valor integral configurado no painel; o horário fica pendente por 20 minutos e só muda para confirmado após o webhook assinado da Woovi informar `OPENPIX:CHARGE_COMPLETED` e o backend validar valor e referência da cobrança.
-
-No Render, configure `WOOVI_APP_ID` como variável secreta. Para criar a chave, no painel Woovi abra `API/Plugins` > `Nova API/Plugin`, nomeie a integração, selecione `API`, salve, conclua a autenticação de dois fatores e copie o `AppID`. No mesmo menu, crie um webhook para o evento `OPENPIX:CHARGE_COMPLETED`, com ação de chamada API e URL `https://SUA-API-DO-RENDER.onrender.com/api/payments/woovi/webhook`.
-
-Depois, no painel `admin-site.html`, informe os preços da quadra coberta para dias de semana e fim de semana, em 1h e 2h. O valor zero impede abrir a cobrança. A API envia `AppID` no header `Authorization` sem prefixo `Bearer`; a assinatura do webhook é validada com as chaves públicas publicadas pela Woovi.

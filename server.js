@@ -348,7 +348,6 @@ async function listUpcomingReservationsByPhone(phoneDigits, customerName = null)
   const out = [];
   for(const ev of items){
     if(!ev.start || String(ev.start).length <= 10) continue; // ignora dia inteiro
-    if(ev.paymentStatus === 'pending') continue;
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
     if(ph === phoneDigits && (!customerName || customerNameMatches(ev.customerName, customerName))){
@@ -550,46 +549,7 @@ function computeAvailability(events, duration, date, requestedCourt = null){
   return out;
 }
 
-// Checkout antecipado da quadra coberta pela Woovi (Pix).
-const WOOVI_APP_ID = process.env.WOOVI_APP_ID || '';
-const API_PUBLIC_URL = String(process.env.API_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || 'https://republica-api-1.onrender.com').replace(/\/$/, '');
-const PENDING_PAYMENT_MINUTES = 20;
-const PAYMENT_HOLD_GRACE_MINUTES = 5;
 let bookingRequestInProgress = false;
-let wooviPublicKeysCache = [];
-let wooviPublicKeysExpiry = 0;
-async function wooviRequest(endpoint, options={}){
-  const response=await fetch(`https://api.woovi.com${endpoint}`,{
-    ...options,
-    headers:{Authorization:WOOVI_APP_ID,'Content-Type':'application/json',...(options.headers||{})}
-  });
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(data.errors?.[0]?.message || data.error || `Woovi retornou HTTP ${response.status}`);
-  return data;
-}
-async function getWooviPublicKeys(){
-  if(wooviPublicKeysCache.length && Date.now()<wooviPublicKeysExpiry) return wooviPublicKeysCache;
-  const response=await fetch('https://api.woovi.com/api/v1/webhook/public-keys');
-  const data=await response.json();
-  const keys=Array.isArray(data.public_keys)?data.public_keys.map(item=>item.key||item.public_key).filter(Boolean).map(key=>String(key).includes('BEGIN PUBLIC KEY')?key:Buffer.from(String(key),'base64').toString('utf8')):[];
-  if(!response.ok || !keys.length) throw new Error('Não foi possível obter as chaves públicas de webhook da Woovi.');
-  wooviPublicKeysCache=keys;
-  wooviPublicKeysExpiry=Date.now()+60*60*1000;
-  return keys;
-}
-async function verifyWooviWebhook(rawBody, signature){
-  if(!rawBody || !signature) return false;
-  const keys=await getWooviPublicKeys();
-  const signatureBytes=Buffer.from(String(signature),'base64');
-  return keys.some(key=>{
-    try{return crypto.verify('RSA-SHA256',rawBody,key,signatureBytes);}catch{return false;}
-  });
-}
-function coveredRentalPrice(date, duration){
-  const rental = readSiteSettings().rental;
-  const period = isWeekend(String(date)) ? rental.coveredWeekend : rental.coveredWeekday;
-  return Number(duration) === 120 ? Number(period?.price2 || 0) : Number(period?.price1 || 0);
-}
 
 // =========================
 // Health
@@ -629,53 +589,6 @@ app.get('/api/slots', async (req,res)=>{
     console.error(e);
     res.status(500).json({ error:'Erro ao buscar horários.' });
   }
-});
-
-app.get('/api/booking-status', async (req,res)=>{
-  try{
-    const eventId=String(req.query.eventId||'');
-    if(!/^[a-zA-Z0-9_-]{5,200}$/.test(eventId)) return res.status(400).json({error:'Reserva inválida.'});
-    await ensureAuth();
-    const result=await calendar.events.get({calendarId:CALENDAR_ID,eventId});
-    const privateProps=result.data.extendedProperties?.private||{};
-    if(privateProps.paymentStatus==='pending' && Number(privateProps.paymentExpiresAt||0)<=Date.now()){
-      try{await calendar.events.delete({calendarId:CALENDAR_ID,eventId});}catch{}
-      return res.json({status:'expired'});
-    }
-    return res.json({status:privateProps.paymentStatus||'confirmed',summary:result.data.summary||''});
-  }catch(error){
-    if(error.code===404) return res.json({status:'expired'});
-    console.error(error); return res.status(500).json({error:'Não foi possível verificar o pagamento.'});
-  }
-});
-
-async function processWooviNotification(payload){
-  if(payload?.event!=='OPENPIX:CHARGE_COMPLETED') return;
-  const charge=payload.charge||payload.pix?.charge||{};
-  if(charge.status!=='COMPLETED') return;
-  const eventId=String(charge.correlationID||'');
-  if(!/^[a-zA-Z0-9_-]{5,200}$/.test(eventId)) return;
-  const current=await calendar.events.get({calendarId:CALENDAR_ID,eventId});
-  const privateProps=current.data.extendedProperties?.private||{};
-  if(privateProps.paymentStatus!=='pending' || Number(privateProps.paymentExpiresAt||0)<=Date.now()) return;
-  const expected=Number(privateProps.expectedAmountCents||0);
-  const paid=Number(charge.valueWithDiscount ?? charge.value ?? 0);
-  if(!expected || paid!==expected){console.error('Valor da cobrança Woovi não corresponde à reserva:',eventId);return;}
-  const description=String(current.data.description||'').replace('Pagamento: aguardando confirmação.','Pagamento Pix: aprovado pela Woovi.');
-  await calendar.events.patch({calendarId:CALENDAR_ID,eventId,requestBody:{
-    summary:String(current.data.summary||'').replace('Pendente de pagamento — ','').replace('Pendente pagamento — ',''),
-    description,
-    extendedProperties:{private:{...privateProps,paymentStatus:'confirmed',paymentId:String(charge.transactionID||charge.identifier||''),paidAt:charge.paidAt||new Date().toISOString(),paymentExpiresAt:''}}
-  }});
-}
-
-app.post('/api/payments/woovi/webhook', async (req,res)=>{
-  try{
-    const valid=await verifyWooviWebhook(req.rawBody,req.headers['x-webhook-signature']);
-    if(!valid) return res.sendStatus(401);
-    await processWooviNotification(req.body);
-    return res.sendStatus(200);
-  }catch(error){console.error('Falha ao validar/processar webhook Woovi:',error.message);return res.sendStatus(500);}
 });
 
 app.post('/api/book', async (req,res)=>{
@@ -771,36 +684,8 @@ app.post('/api/book', async (req,res)=>{
       end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
     };
 
-    if(chosen===2){
-      if(!WOOVI_APP_ID) return res.status(503).json({error:'O pagamento da quadra coberta ainda não foi configurado.'});
-      const amount=coveredRentalPrice(String(date),dur);
-      if(!Number.isFinite(amount) || amount<=0) return res.status(400).json({error:'O preço da quadra coberta ainda não foi definido no painel administrativo.'});
-      const expiresAt=Date.now()+PENDING_PAYMENT_MINUTES*60*1000;
-      const amountCents=Math.round(amount*100);
-      const pendingHoldExpiresAt=expiresAt+PAYMENT_HOLD_GRACE_MINUTES*60*1000;
-      const pendingEvent={...event,summary:`Pendente de pagamento — ${summary}`,description:`${description}Pagamento: aguardando confirmação.\nValor: R$ ${amount.toFixed(2)}\n`,extendedProperties:{private:{paymentStatus:'pending',paymentExpiresAt:String(pendingHoldExpiresAt),expectedAmountCents:String(amountCents)}}};
-      const created=await calendar.events.insert({calendarId:CALENDAR_ID,requestBody:pendingEvent});
-      try{
-        const chargeResult=await wooviRequest('/api/v1/charge',{method:'POST',body:JSON.stringify({
-          value:amountCents,
-          correlationID:created.data.id,
-          comment:`Locação quadra coberta ${String(date)} ${String(start)}`,
-          expiresIn:PENDING_PAYMENT_MINUTES*60
-        })});
-        const charge=chargeResult.charge||chargeResult;
-        const paymentLinkUrl=String(charge.paymentLinkUrl||'');
-        if(!paymentLinkUrl) throw new Error('A Woovi não retornou o link Pix da cobrança.');
-        await calendar.events.patch({calendarId:CALENDAR_ID,eventId:created.data.id,requestBody:{extendedProperties:{private:{...pendingEvent.extendedProperties.private,wooviChargeId:String(charge.identifier||'')}}}});
-        return res.json({ok:true,paymentRequired:true,checkoutUrl:paymentLinkUrl,eventId:created.data.id,amount,court:courtLabel(chosen),start,end,expiresAt,paymentMethod:'Pix'});
-      }catch(paymentError){
-        try{await calendar.events.delete({calendarId:CALENDAR_ID,eventId:created.data.id});}catch{}
-        console.error('Não foi possível iniciar a cobrança Woovi:',paymentError.message);
-        return res.status(502).json({error:'Não foi possível iniciar o pagamento Pix. Tente novamente.'});
-      }
-    }
-
     const created = await calendar.events.insert({ calendarId: CALENDAR_ID, requestBody: event });
-    return res.json({ ok:true, court:courtLabel(chosen), start, end, eventId:created.data.id, paymentRequired:false });
+    return res.json({ ok:true, court:courtLabel(chosen), start, end, eventId:created.data.id });
   }catch(e){
     console.error(e);
     res.status(500).json({ error:'Erro ao criar reserva.' });
