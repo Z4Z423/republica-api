@@ -7,7 +7,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const app = express();
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '12mb', verify:(req,res,buffer)=>{ req.rawBody=Buffer.from(buffer); } }));
 
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.BASE_TZ || 'America/Sao_Paulo';
@@ -76,29 +76,15 @@ const calendar = google.calendar({ version:'v3', auth: jwtClient });
 
 function pad(n){ return String(n).padStart(2,'0'); }
 function normalizePhone(s){ return String(s || '').replace(/\D+/g, ''); }
-function normalizeCpf(s){ return String(s || '').replace(/\D+/g, ''); }
-function isValidCpf(value){
-  const cpf = normalizeCpf(value);
-  if(!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
-  const digit = length => {
-    let sum = 0;
-    for(let i=0; i<length; i++) sum += Number(cpf[i]) * (length + 1 - i);
-    const remainder = (sum * 10) % 11;
-    return remainder === 10 ? 0 : remainder;
-  };
-  return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
+function normalizeCustomerName(value){ return String(value || '').trim().toLocaleLowerCase('pt-BR').replace(/\s+/g, ' '); }
+function extractCustomerName(description){
+  const match = String(description || '').match(/^\s*Cliente:\s*(.*?)\s*$/mi);
+  return match ? match[1].trim() : '';
 }
-function formatCpf(value){
-  const cpf = normalizeCpf(value);
-  return cpf.length === 11 ? `${cpf.slice(0,3)}.${cpf.slice(3,6)}.${cpf.slice(6,9)}-${cpf.slice(9)}` : cpf;
-}
-function cpfFingerprint(value){
-  const secret = process.env.CPF_HASH_SECRET || AUTH_SECRET;
-  return crypto.createHmac('sha256', secret).update(normalizeCpf(value)).digest('hex');
-}
-function extractCpfFingerprint(description){
-  const match = String(description || '').match(/CPF-ID:\s*([a-f0-9]{64})/i);
-  return match ? match[1].toLowerCase() : '';
+function customerNameMatches(storedName, suppliedName){
+  const stored = normalizeCustomerName(storedName);
+  const supplied = normalizeCustomerName(suppliedName);
+  return Boolean(supplied && (stored === supplied || stored === 'reserva pelo site'));
 }
 
 // =========================
@@ -167,6 +153,8 @@ const DEFAULT_SITE_SETTINGS = {
   rental: {
     weekday: { start:'17:00', end:'23:00', price1:100, price2:180 },
     weekend: { start:'09:00', end:'19:00', price1:100, price2:180 },
+    coveredWeekday: { price1:0, price2:0 },
+    coveredWeekend: { price1:0, price2:0 },
     fridayPromo: { enabled:true, title:'🎉 Sexta com desconto', text:'Promoção válida todas as sextas na locação avulsa.', price1:80, price2:150, original1:100, original2:180 },
     monthly: [{ label:'1 Hora/sem', price:350 }, { label:'2 Horas/sem', price:650 }]
   },
@@ -185,7 +173,7 @@ function readSiteSettings(){
   try{
     if(!fs.existsSync(SITE_SETTINGS_FILE)) return DEFAULT_SITE_SETTINGS;
     const parsed = JSON.parse(fs.readFileSync(SITE_SETTINGS_FILE, 'utf8'));
-    return { ...DEFAULT_SITE_SETTINGS, ...parsed, gallery: Array.isArray(parsed.gallery) ? parsed.gallery : DEFAULT_SITE_SETTINGS.gallery, rental: { ...DEFAULT_SITE_SETTINGS.rental, ...(parsed.rental || {}), weekday: { ...DEFAULT_SITE_SETTINGS.rental.weekday, ...(parsed.rental?.weekday || {}) }, weekend: { ...DEFAULT_SITE_SETTINGS.rental.weekend, ...(parsed.rental?.weekend || {}) }, fridayPromo: { ...DEFAULT_SITE_SETTINGS.rental.fridayPromo, ...(parsed.rental?.fridayPromo || {}) }, monthly: Array.isArray(parsed.rental?.monthly) ? parsed.rental.monthly : DEFAULT_SITE_SETTINGS.rental.monthly } };
+    return { ...DEFAULT_SITE_SETTINGS, ...parsed, gallery: Array.isArray(parsed.gallery) ? parsed.gallery : DEFAULT_SITE_SETTINGS.gallery, rental: { ...DEFAULT_SITE_SETTINGS.rental, ...(parsed.rental || {}), weekday: { ...DEFAULT_SITE_SETTINGS.rental.weekday, ...(parsed.rental?.weekday || {}) }, weekend: { ...DEFAULT_SITE_SETTINGS.rental.weekend, ...(parsed.rental?.weekend || {}) }, coveredWeekday: { ...DEFAULT_SITE_SETTINGS.rental.coveredWeekday, ...(parsed.rental?.coveredWeekday || {}) }, coveredWeekend: { ...DEFAULT_SITE_SETTINGS.rental.coveredWeekend, ...(parsed.rental?.coveredWeekend || {}) }, fridayPromo: { ...DEFAULT_SITE_SETTINGS.rental.fridayPromo, ...(parsed.rental?.fridayPromo || {}) }, monthly: Array.isArray(parsed.rental?.monthly) ? parsed.rental.monthly : DEFAULT_SITE_SETTINGS.rental.monthly } };
   }catch{ return DEFAULT_SITE_SETTINGS; }
 }
 function validateSiteSettings(value){
@@ -200,6 +188,11 @@ function validateSiteSettings(value){
     const period = rental[key];
     if(!period || !validTime(period.start) || !validTime(period.end) || period.start >= period.end) return 'Confira os horários de abertura e fechamento da locação.';
     for(const field of ['price1','price2']) if(!Number.isFinite(Number(period[field])) || Number(period[field]) < 0 || Number(period[field]) > 100000) return 'Confira os preços da locação avulsa.';
+  }
+  for(const key of ['coveredWeekday','coveredWeekend']){
+    const prices = rental[key];
+    if(!prices) return 'Confira os preços da quadra coberta.';
+    for(const field of ['price1','price2']) if(!Number.isFinite(Number(prices[field])) || Number(prices[field]) < 0 || Number(prices[field]) > 100000) return 'Confira os preços da quadra coberta.';
   }
   const promo = rental.fridayPromo;
   if(!promo || typeof promo.enabled !== 'boolean' || typeof promo.title !== 'string' || promo.title.length > 100 || typeof promo.text !== 'string' || promo.text.length > 300) return 'Confira a promoção de sexta-feira.';
@@ -325,7 +318,7 @@ async function ensureAuth(){
   await jwtClient.authorize();
 }
 
-async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
+async function listUpcomingReservationsByPhone(phoneDigits, customerName = null){
   await ensureAuth();
 
   const now = new Date();
@@ -345,7 +338,8 @@ async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
     id: e.id,
     summary: e.summary || '',
     description: e.description || '',
-    cpfHash: e.extendedProperties?.private?.cpfHash || extractCpfFingerprint(e.description),
+    customerName: extractCustomerName(e.description),
+    paymentStatus: e.extendedProperties?.private?.paymentStatus || '',
     location: e.location || '',
     start: e.start?.dateTime || e.start?.date || '',
     end: e.end?.dateTime || e.end?.date || ''
@@ -354,16 +348,16 @@ async function listUpcomingReservationsByPhone(phoneDigits, cpfHash = null){
   const out = [];
   for(const ev of items){
     if(!ev.start || String(ev.start).length <= 10) continue; // ignora dia inteiro
+    if(ev.paymentStatus === 'pending') continue;
     const ph = extractPhoneFromEvent(ev);
     if(!ph) continue;
-    const eventCpfHash = ev.cpfHash;
-    if(ph === phoneDigits && (!cpfHash || eventCpfHash === cpfHash)){
+    if(ph === phoneDigits && (!customerName || customerNameMatches(ev.customerName, customerName))){
       out.push({
         eventId: ev.id,
         summary: ev.summary,
         start: ev.start,
         end: ev.end,
-        cpfHash: eventCpfHash
+        customerName: ev.customerName
       });
     }
   }
@@ -458,14 +452,17 @@ async function listEventsForDay(dateStr){
     orderBy: 'startTime'
   });
 
-  return (resp.data.items || []).map(ev => ({
-    id: ev.id,
-    summary: ev.summary || '',
-    description: ev.description || '',
-    location: ev.location || '',
-    start: ev.start?.dateTime || ev.start?.date,
-    end: ev.end?.dateTime || ev.end?.date
-  }));
+  const now = Date.now();
+  const events = [];
+  for(const ev of (resp.data.items || [])){
+    const privateProps = ev.extendedProperties?.private || {};
+    if(privateProps.paymentStatus === 'pending' && Number(privateProps.paymentExpiresAt || 0) <= now){
+      try{ await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id }); }catch(error){ console.warn('Não foi possível remover reserva pendente expirada:', ev.id, error.message); }
+      continue;
+    }
+    events.push({ id:ev.id, summary:ev.summary||'', description:ev.description||'', location:ev.location||'', start:ev.start?.dateTime||ev.start?.date, end:ev.end?.dateTime||ev.end?.date, paymentStatus:privateProps.paymentStatus||'' });
+  }
+  return events;
 }
 
 function isoToMinutes(iso){
@@ -553,6 +550,47 @@ function computeAvailability(events, duration, date, requestedCourt = null){
   return out;
 }
 
+// Checkout antecipado da quadra coberta pela Woovi (Pix).
+const WOOVI_APP_ID = process.env.WOOVI_APP_ID || '';
+const API_PUBLIC_URL = String(process.env.API_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || 'https://republica-api-1.onrender.com').replace(/\/$/, '');
+const PENDING_PAYMENT_MINUTES = 20;
+const PAYMENT_HOLD_GRACE_MINUTES = 5;
+let bookingRequestInProgress = false;
+let wooviPublicKeysCache = [];
+let wooviPublicKeysExpiry = 0;
+async function wooviRequest(endpoint, options={}){
+  const response=await fetch(`https://api.woovi.com${endpoint}`,{
+    ...options,
+    headers:{Authorization:WOOVI_APP_ID,'Content-Type':'application/json',...(options.headers||{})}
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.errors?.[0]?.message || data.error || `Woovi retornou HTTP ${response.status}`);
+  return data;
+}
+async function getWooviPublicKeys(){
+  if(wooviPublicKeysCache.length && Date.now()<wooviPublicKeysExpiry) return wooviPublicKeysCache;
+  const response=await fetch('https://api.woovi.com/api/v1/webhook/public-keys');
+  const data=await response.json();
+  const keys=Array.isArray(data.public_keys)?data.public_keys.map(item=>item.key||item.public_key).filter(Boolean).map(key=>String(key).includes('BEGIN PUBLIC KEY')?key:Buffer.from(String(key),'base64').toString('utf8')):[];
+  if(!response.ok || !keys.length) throw new Error('Não foi possível obter as chaves públicas de webhook da Woovi.');
+  wooviPublicKeysCache=keys;
+  wooviPublicKeysExpiry=Date.now()+60*60*1000;
+  return keys;
+}
+async function verifyWooviWebhook(rawBody, signature){
+  if(!rawBody || !signature) return false;
+  const keys=await getWooviPublicKeys();
+  const signatureBytes=Buffer.from(String(signature),'base64');
+  return keys.some(key=>{
+    try{return crypto.verify('RSA-SHA256',rawBody,key,signatureBytes);}catch{return false;}
+  });
+}
+function coveredRentalPrice(date, duration){
+  const rental = readSiteSettings().rental;
+  const period = isWeekend(String(date)) ? rental.coveredWeekend : rental.coveredWeekday;
+  return Number(duration) === 120 ? Number(period?.price2 || 0) : Number(period?.price1 || 0);
+}
+
 // =========================
 // Health
 // =========================
@@ -593,14 +631,63 @@ app.get('/api/slots', async (req,res)=>{
   }
 });
 
+app.get('/api/booking-status', async (req,res)=>{
+  try{
+    const eventId=String(req.query.eventId||'');
+    if(!/^[a-zA-Z0-9_-]{5,200}$/.test(eventId)) return res.status(400).json({error:'Reserva inválida.'});
+    await ensureAuth();
+    const result=await calendar.events.get({calendarId:CALENDAR_ID,eventId});
+    const privateProps=result.data.extendedProperties?.private||{};
+    if(privateProps.paymentStatus==='pending' && Number(privateProps.paymentExpiresAt||0)<=Date.now()){
+      try{await calendar.events.delete({calendarId:CALENDAR_ID,eventId});}catch{}
+      return res.json({status:'expired'});
+    }
+    return res.json({status:privateProps.paymentStatus||'confirmed',summary:result.data.summary||''});
+  }catch(error){
+    if(error.code===404) return res.json({status:'expired'});
+    console.error(error); return res.status(500).json({error:'Não foi possível verificar o pagamento.'});
+  }
+});
+
+async function processWooviNotification(payload){
+  if(payload?.event!=='OPENPIX:CHARGE_COMPLETED') return;
+  const charge=payload.charge||payload.pix?.charge||{};
+  if(charge.status!=='COMPLETED') return;
+  const eventId=String(charge.correlationID||'');
+  if(!/^[a-zA-Z0-9_-]{5,200}$/.test(eventId)) return;
+  const current=await calendar.events.get({calendarId:CALENDAR_ID,eventId});
+  const privateProps=current.data.extendedProperties?.private||{};
+  if(privateProps.paymentStatus!=='pending' || Number(privateProps.paymentExpiresAt||0)<=Date.now()) return;
+  const expected=Number(privateProps.expectedAmountCents||0);
+  const paid=Number(charge.valueWithDiscount ?? charge.value ?? 0);
+  if(!expected || paid!==expected){console.error('Valor da cobrança Woovi não corresponde à reserva:',eventId);return;}
+  const description=String(current.data.description||'').replace('Pagamento: aguardando confirmação.','Pagamento Pix: aprovado pela Woovi.');
+  await calendar.events.patch({calendarId:CALENDAR_ID,eventId,requestBody:{
+    summary:String(current.data.summary||'').replace('Pendente de pagamento — ','').replace('Pendente pagamento — ',''),
+    description,
+    extendedProperties:{private:{...privateProps,paymentStatus:'confirmed',paymentId:String(charge.transactionID||charge.identifier||''),paidAt:charge.paidAt||new Date().toISOString(),paymentExpiresAt:''}}
+  }});
+}
+
+app.post('/api/payments/woovi/webhook', async (req,res)=>{
+  try{
+    const valid=await verifyWooviWebhook(req.rawBody,req.headers['x-webhook-signature']);
+    if(!valid) return res.sendStatus(401);
+    await processWooviNotification(req.body);
+    return res.sendStatus(200);
+  }catch(error){console.error('Falha ao validar/processar webhook Woovi:',error.message);return res.sendStatus(500);}
+});
+
 app.post('/api/book', async (req,res)=>{
+  if(bookingRequestInProgress) return res.status(409).json({error:'Estamos confirmando outra reserva agora. Tente novamente em alguns segundos.'});
+  bookingRequestInProgress=true;
   try{
     const missing = requireEnv();
     if(missing.length){
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { date, start, duration, name, phone, cpf } = req.body || {};
+    const { date, start, duration, name, phone } = req.body || {};
     const requestedCourt = req.body?.court == null || req.body?.court === '' ? null : Number(req.body.court);
 
     if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
@@ -610,9 +697,9 @@ app.post('/api/book', async (req,res)=>{
     if(![60,120].includes(dur)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(requestedCourt !== null && ![1,2].includes(requestedCourt)) return res.status(400).json({ error:'court inválida (use 1 para aberta ou 2 para coberta)' });
     const phoneDigits = normalizePhone(phone);
-    const cpfDigits = normalizeCpf(cpf);
+    const customerName = String(name || '').replace(/[\r\n]+/g, ' ').trim();
     if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
-    if(!isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
+    if(!customerName || customerName.length > 120) return res.status(400).json({ error:'Informe seu nome.' });
 
     const startMin = Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]);
     const endMin = startMin + dur;
@@ -675,32 +762,50 @@ app.post('/api/book', async (req,res)=>{
     const warning = (unknownCount > 0 && busyKnown.size === 0)
       ? '\nObs: havia aula/evento sem quadra definida nesse horário. Confirme com a equipe para evitar conflito.\n'
       : '';
-    const customerName = String(name || '').trim() || 'Reserva pelo site';
-    const description = `Cliente: ${customerName}\nWhatsApp: ${phoneDigits}\nCPF: ${formatCpf(cpfDigits)}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
+    const description = `Cliente: ${customerName}\nWhatsApp: ${phoneDigits}\nDuração: ${dur === 120 ? '2h' : '1h'}\nOrigem: site\n${warning}`;
 
     const event = {
       summary,
       description,
-      extendedProperties: { private: { cpfHash: cpfFingerprint(cpfDigits) } },
       start: { dateTime: toDateTimeISO(String(date), String(start)), timeZone: TZ },
       end: { dateTime: toDateTimeISO(String(date), end), timeZone: TZ }
     };
 
-    const created = await calendar.events.insert({
-      calendarId: CALENDAR_ID,
-      requestBody: event
-    });
+    if(chosen===2){
+      if(!WOOVI_APP_ID) return res.status(503).json({error:'O pagamento da quadra coberta ainda não foi configurado.'});
+      const amount=coveredRentalPrice(String(date),dur);
+      if(!Number.isFinite(amount) || amount<=0) return res.status(400).json({error:'O preço da quadra coberta ainda não foi definido no painel administrativo.'});
+      const expiresAt=Date.now()+PENDING_PAYMENT_MINUTES*60*1000;
+      const amountCents=Math.round(amount*100);
+      const pendingHoldExpiresAt=expiresAt+PAYMENT_HOLD_GRACE_MINUTES*60*1000;
+      const pendingEvent={...event,summary:`Pendente de pagamento — ${summary}`,description:`${description}Pagamento: aguardando confirmação.\nValor: R$ ${amount.toFixed(2)}\n`,extendedProperties:{private:{paymentStatus:'pending',paymentExpiresAt:String(pendingHoldExpiresAt),expectedAmountCents:String(amountCents)}}};
+      const created=await calendar.events.insert({calendarId:CALENDAR_ID,requestBody:pendingEvent});
+      try{
+        const chargeResult=await wooviRequest('/api/v1/charge',{method:'POST',body:JSON.stringify({
+          value:amountCents,
+          correlationID:created.data.id,
+          comment:`Locação quadra coberta ${String(date)} ${String(start)}`,
+          expiresIn:PENDING_PAYMENT_MINUTES*60
+        })});
+        const charge=chargeResult.charge||chargeResult;
+        const paymentLinkUrl=String(charge.paymentLinkUrl||'');
+        if(!paymentLinkUrl) throw new Error('A Woovi não retornou o link Pix da cobrança.');
+        await calendar.events.patch({calendarId:CALENDAR_ID,eventId:created.data.id,requestBody:{extendedProperties:{private:{...pendingEvent.extendedProperties.private,wooviChargeId:String(charge.identifier||'')}}}});
+        return res.json({ok:true,paymentRequired:true,checkoutUrl:paymentLinkUrl,eventId:created.data.id,amount,court:courtLabel(chosen),start,end,expiresAt,paymentMethod:'Pix'});
+      }catch(paymentError){
+        try{await calendar.events.delete({calendarId:CALENDAR_ID,eventId:created.data.id});}catch{}
+        console.error('Não foi possível iniciar a cobrança Woovi:',paymentError.message);
+        return res.status(502).json({error:'Não foi possível iniciar o pagamento Pix. Tente novamente.'});
+      }
+    }
 
-    return res.json({
-      ok: true,
-      court: courtLabel(chosen),
-      start,
-      end,
-      eventId: created.data.id
-    });
+    const created = await calendar.events.insert({ calendarId: CALENDAR_ID, requestBody: event });
+    return res.json({ ok:true, court:courtLabel(chosen), start, end, eventId:created.data.id, paymentRequired:false });
   }catch(e){
     console.error(e);
     res.status(500).json({ error:'Erro ao criar reserva.' });
+  }finally{
+    bookingRequestInProgress=false;
   }
 });
 
@@ -714,13 +819,13 @@ app.post('/api/cancel_lookup', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { phone, cpf } = req.body || {};
+    const { phone, name } = req.body || {};
     const phoneDigits = normalizePhone(phone);
-    const cpfDigits = normalizeCpf(cpf);
+    const customerName = String(name || '').trim();
     if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
-    if(!isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
+    if(!customerName || customerName.length > 120) return res.status(400).json({ error:'Informe o nome usado na reserva.' });
 
-    const reservations = await listUpcomingReservationsByPhone(phoneDigits, cpfFingerprint(cpfDigits));
+    const reservations = await listUpcomingReservationsByPhone(phoneDigits, customerName);
 
     if(!reservations.length){
       return res.json({ ok:true, reservations: [] });
@@ -756,17 +861,15 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
     }
 
-    const { phone, cpf, eventId } = req.body || {};
+    const { phone, name, eventId } = req.body || {};
     const phoneDigits = normalizePhone(phone);
-    const cpfDigits = normalizeCpf(cpf);
+    const customerName = String(name || '').trim();
     if(phoneDigits.length < 10 || phoneDigits.length > 13) return res.status(400).json({ error:'Informe um WhatsApp válido.' });
-    if(cpfDigits && !isValidCpf(cpfDigits)) return res.status(400).json({ error:'Informe um CPF válido.' });
-    // A página pública exige telefone + CPF. Mantém-se o fluxo antigo da área logada.
-    const cpfHash = cpfDigits ? cpfFingerprint(cpfDigits) : null;
+    if(!customerName || customerName.length > 120) return res.status(400).json({ error:'Informe o nome usado na reserva.' });
 
     if(!eventId){
-      const list = await listUpcomingReservationsByPhone(phoneDigits, cpfHash);
-      if(!list.length) return res.status(404).json({ error: cpfHash ? 'Nenhuma reserva encontrada para esses dados.' : 'Nenhuma reserva encontrada para esse telefone.' });
+      const list = await listUpcomingReservationsByPhone(phoneDigits, customerName);
+      if(!list.length) return res.status(404).json({ error:'Nenhuma reserva encontrada para esse nome e WhatsApp.' });
 
       const pick = list[0];
       await ensureAuth();
@@ -782,9 +885,9 @@ app.post('/api/cancel_by_phone', async (req,res)=>{
       location: ev.data.location || ''
     });
 
-    const eventCpfHash = ev.data.extendedProperties?.private?.cpfHash || extractCpfFingerprint(ev.data.description);
-    if(ph !== phoneDigits || (cpfHash && eventCpfHash !== cpfHash)){
-      return res.status(403).json({ error: cpfHash ? 'O telefone e o CPF não conferem com a reserva.' : 'Este telefone não confere com a reserva.' });
+    const storedCustomerName = extractCustomerName(ev.data.description);
+    if(ph !== phoneDigits || !customerNameMatches(storedCustomerName, customerName)){
+      return res.status(403).json({ error:'O nome e o WhatsApp não conferem com a reserva.' });
     }
 
     await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
