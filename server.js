@@ -152,6 +152,66 @@ const validDateISO = value => {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0,10) === value;
 };
 
+const RECURRENCE_DAYS = ['MO','TU','WE','TH','FR','SA','SU'];
+function addDaysISO(dateISO, amount){
+  const date = new Date(`${dateISO}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0,10);
+}
+function dateWeekdayCode(dateISO){
+  const day = new Date(`${dateISO}T12:00:00Z`).getUTCDay();
+  return ['SU','MO','TU','WE','TH','FR','SA'][day];
+}
+function mondayOfWeek(dateISO){
+  const day = new Date(`${dateISO}T12:00:00Z`).getUTCDay();
+  return addDaysISO(dateISO, -((day + 6) % 7));
+}
+function makeAdminRecurrence(raw, startDate){
+  if(raw == null) return { recurrence:null, dates:[startDate] };
+  const frequency = String(raw.frequency || '');
+  const interval = raw.interval == null ? 1 : Number(raw.interval);
+  if(!['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(frequency) || !Number.isInteger(interval) || interval < 1 || interval > 99){
+    return { error:'Confira a frequência e o intervalo da repetição.' };
+  }
+  const byDay = frequency === 'WEEKLY' ? [...new Set(Array.isArray(raw.byDay) ? raw.byDay.map(String) : [])] : [];
+  if(frequency === 'WEEKLY' && (!byDay.length || byDay.some(day => !RECURRENCE_DAYS.includes(day)))) return { error:'Selecione pelo menos um dia da semana para repetir.' };
+  if(raw.count != null && raw.until != null) return { error:'Escolha se a repetição termina por data ou por quantidade.' };
+  if(raw.count != null && (!Number.isInteger(Number(raw.count)) || Number(raw.count) < 2 || Number(raw.count) > 500)) return { error:'O número de repetições deve ficar entre 2 e 500.' };
+  if(raw.until != null && (!validDateISO(String(raw.until)) || String(raw.until) < startDate)) return { error:'A data final da repetição precisa ser igual ou posterior à data de início.' };
+
+  const parts = [`FREQ=${frequency}`];
+  if(interval > 1) parts.push(`INTERVAL=${interval}`);
+  if(byDay.length) parts.push(`BYDAY=${RECURRENCE_DAYS.filter(day => byDay.includes(day)).join(',')}`);
+  let until = null;
+  if(raw.count != null) parts.push(`COUNT=${Number(raw.count)}`);
+  if(raw.until != null){
+    until = String(raw.until);
+    const utc = new Date(`${until}T23:59:59-03:00`).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
+    parts.push(`UNTIL=${utc}`);
+  }
+
+  const recurrence = { frequency, interval, byDay, until, count:raw.count == null ? null : Number(raw.count) };
+  const oneYearLimit = addDaysISO(startDate, 366);
+  const horizon = until && until < oneYearLimit ? until : oneYearLimit;
+  const dates = [];
+  let cursor = startDate;
+  while(cursor <= horizon){
+    const diff = Math.round((Date.parse(`${cursor}T12:00:00Z`) - Date.parse(`${startDate}T12:00:00Z`)) / 86400000);
+    const matches = cursor === startDate || (
+      frequency === 'DAILY' ? diff % interval === 0 :
+      frequency === 'WEEKLY' ? (Math.floor((Date.parse(`${mondayOfWeek(cursor)}T12:00:00Z`) - Date.parse(`${mondayOfWeek(startDate)}T12:00:00Z`)) / 604800000) % interval === 0 && byDay.includes(dateWeekdayCode(cursor))) :
+      frequency === 'MONTHLY' ? (((Number(cursor.slice(0,4))-Number(startDate.slice(0,4)))*12 + Number(cursor.slice(5,7))-Number(startDate.slice(5,7))) % interval === 0 && cursor.slice(8,10) === startDate.slice(8,10)) :
+      (((Number(cursor.slice(0,4))-Number(startDate.slice(0,4))) % interval === 0) && cursor.slice(5) === startDate.slice(5))
+    );
+    if(matches){
+      dates.push(cursor);
+      if(recurrence.count && dates.length >= recurrence.count) break;
+    }
+    cursor = addDaysISO(cursor, 1);
+  }
+  return { recurrence, dates, rrule:`RRULE:${parts.join(';')}` };
+}
+
 const DEFAULT_SITE_SETTINGS = {
   heroBadge: 'Nova experiência de areia em SJP',
   heroTitle: 'Sua quadra oficial de esportes de areia',
@@ -1105,7 +1165,7 @@ app.get('/api/admin/reservations', adminAuth, async (req, res) => {
   }
 });
 
-// Bloqueios administrativos de agenda: reposições e eventos.
+// Aulas, reposições e eventos marcados pelo painel administrativo.
 app.get('/api/admin/agenda', adminAuth, async (req, res) => {
   try{
     const missing = requireEnv();
@@ -1132,6 +1192,7 @@ app.get('/api/admin/agenda', adminAuth, async (req, res) => {
       type:ev.extendedProperties.private.adminBlockType || 'evento',
       title:ev.extendedProperties.private.adminBlockTitle || ev.summary || '',
       court:ev.extendedProperties.private.adminBlockCourt === '1' ? 'Quadra aberta' : ev.extendedProperties.private.adminBlockCourt === '2' ? 'Quadra coberta' : 'Ambas as quadras',
+      recurring:!!ev.recurringEventId,
       details:ev.description || '',
       start:ev.start?.dateTime || ev.start?.date || '',
       end:ev.end?.dateTime || ev.end?.date || ''
@@ -1157,18 +1218,39 @@ app.post('/api/admin/agenda', adminAuth, async (req, res) => {
     if(!validDateISO(date) || !validTime(start) || !validTime(end) || start >= end){
       return res.status(400).json({ error:'Confira a data e os horários de início e término.' });
     }
-    if(!['reposicao','evento'].includes(type)) return res.status(400).json({ error:'Escolha reposição de aula ou evento.' });
+    const recurrenceResult = makeAdminRecurrence(req.body?.recurrence, date);
+    if(recurrenceResult.error) return res.status(400).json({ error:recurrenceResult.error });
+    if(!['reposicao','futevolei','beach-tennis','evento'].includes(type)) return res.status(400).json({ error:'Escolha reposição, aula de futevôlei, aula de Beach Tennis ou evento.' });
     if(!['1','2','ambas'].includes(court)) return res.status(400).json({ error:'Escolha a quadra aberta, coberta ou ambas.' });
     if(!title || title.length > 120 || details.length > 1000) return res.status(400).json({ error:'Informe um título de até 120 caracteres e detalhes de até 1000 caracteres.' });
 
     await ensureAuth();
-    const currentEvents = await listEventsForDay(date);
+    const occurrenceDates = recurrenceResult.dates;
+    const occurrenceSet = new Set(occurrenceDates);
+    const checkTo = occurrenceDates[occurrenceDates.length - 1] || date;
+    const currentResponse = await calendar.events.list({
+      calendarId:CALENDAR_ID,
+      timeMin:`${date}T00:00:00-03:00`,
+      timeMax:`${checkTo}T23:59:59-03:00`,
+      timeZone:TZ,
+      singleEvents:true,
+      orderBy:'startTime',
+      maxResults:2500
+    });
     const requestedCourts = court === 'ambas' ? [1,2] : [Number(court)];
     const startMinutes = Number(start.slice(0,2))*60 + Number(start.slice(3,5));
     const endMinutes = Number(end.slice(0,2))*60 + Number(end.slice(3,5));
-    for(const ev of currentEvents){
-      if(String(ev.start).length <= 10) return res.status(409).json({ error:'Já existe um evento de dia inteiro nessa data. Confira a agenda antes de marcar.' });
-      const eventStart = isoToMinutes(ev.start), eventEnd = isoToMinutes(ev.end);
+    for(const ev of currentResponse.data.items || []){
+      const privateProps = ev.extendedProperties?.private || {};
+      if(privateProps.paymentStatus === 'pending' && Number(privateProps.paymentExpiresAt || 0) <= Date.now()){
+        try{ await calendar.events.delete({ calendarId:CALENDAR_ID, eventId:ev.id }); }catch(error){ console.warn('Não foi possível remover reserva pendente expirada:', ev.id, error.message); }
+        continue;
+      }
+      const existingStart = ev.start?.dateTime || ev.start?.date || '';
+      const existingDate = String(existingStart).slice(0,10);
+      if(!occurrenceSet.has(existingDate)) continue;
+      if(!ev.start?.dateTime) return res.status(409).json({ error:'Já existe um evento de dia inteiro nessa data. Confira a agenda antes de marcar.' });
+      const eventStart = isoToMinutes(ev.start?.dateTime || ev.start?.date), eventEnd = isoToMinutes(ev.end?.dateTime || ev.end?.date);
       if(!overlaps(startMinutes, endMinutes, eventStart, eventEnd)) continue;
       const classification = classifyEventToCourts(ev);
       if(classification.kind === 'unknownSingle') return res.status(409).json({ error:'Há um compromisso sem quadra identificada nesse horário. Confira a agenda antes de marcar.' });
@@ -1179,7 +1261,7 @@ app.post('/api/admin/agenda', adminAuth, async (req, res) => {
 
     const courtLabelText = court === '1' ? 'Quadra aberta' : court === '2' ? 'Quadra coberta' : 'Ambas as quadras';
     const courtClassifierText = court === 'ambas' ? 'Quadra aberta e Quadra coberta' : courtLabelText;
-    const typeLabel = type === 'reposicao' ? 'Reposição de aula' : 'Evento';
+    const typeLabel = ({reposicao:'Reposição de aula',futevolei:'Aula de futevôlei','beach-tennis':'Aula de Beach Tennis',evento:'Evento'})[type];
     const summary = `${typeLabel} — ${courtClassifierText} — ${title}`;
     const event = {
       summary,
@@ -1188,8 +1270,9 @@ app.post('/api/admin/agenda', adminAuth, async (req, res) => {
       end:{ dateTime:toDateTimeISO(date, end), timeZone:TZ },
       extendedProperties:{ private:{ adminBlock:'true', adminBlockType:type, adminBlockCourt:court, adminBlockTitle:title } }
     };
+    if(recurrenceResult.rrule) event.recurrence=[recurrenceResult.rrule];
     const created = await calendar.events.insert({ calendarId:CALENDAR_ID, requestBody:event });
-    return res.status(201).json({ ok:true, item:{ eventId:created.data.id, type, title, court:courtLabelText, start:created.data.start?.dateTime || '', end:created.data.end?.dateTime || '' } });
+    return res.status(201).json({ ok:true, item:{ eventId:created.data.id, type, title, court:courtLabelText, recurring:!!recurrenceResult.rrule, start:created.data.start?.dateTime || '', end:created.data.end?.dateTime || '' } });
   }catch(error){
     console.error('Erro ao marcar horário administrativo:', error);
     return res.status(500).json({ error:'Não foi possível marcar esse horário.' });
@@ -1199,13 +1282,16 @@ app.post('/api/admin/agenda', adminAuth, async (req, res) => {
 app.delete('/api/admin/agenda/:eventId', adminAuth, async (req, res) => {
   try{
     const eventId = String(req.params.eventId || '').trim();
+    const scope = String(req.query.scope || 'occurrence');
     if(!eventId || eventId.length > 300) return res.status(400).json({ error:'Identificador do evento inválido.' });
+    if(!['occurrence','series'].includes(scope)) return res.status(400).json({ error:'Escolha uma ocorrência ou a série inteira.' });
     await ensureAuth();
     const existing = await calendar.events.get({ calendarId:CALENDAR_ID, eventId });
     if(existing.data.extendedProperties?.private?.adminBlock !== 'true'){
       return res.status(403).json({ error:'Somente bloqueios marcados pelo painel podem ser removidos por aqui.' });
     }
-    await calendar.events.delete({ calendarId:CALENDAR_ID, eventId });
+    const deleteId = scope === 'series' ? (existing.data.recurringEventId || eventId) : eventId;
+    await calendar.events.delete({ calendarId:CALENDAR_ID, eventId:deleteId });
     return res.json({ ok:true });
   }catch(error){
     if(error?.code === 404) return res.status(404).json({ error:'Esse bloqueio já foi removido.' });
