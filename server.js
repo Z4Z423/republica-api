@@ -158,6 +158,14 @@ function addDaysISO(dateISO, amount){
   date.setUTCDate(date.getUTCDate() + amount);
   return date.toISOString().slice(0,10);
 }
+function todayISOInTimeZone(){
+  return new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+function isCustomerBookingDate(dateISO){
+  const date=String(dateISO || '');
+  const today=todayISOInTimeZone();
+  return validDateISO(date) && date >= today && date <= addDaysISO(today,7);
+}
 function dateWeekdayCode(dateISO){
   const day = new Date(`${dateISO}T12:00:00Z`).getUTCDay();
   return ['SU','MO','TU','WE','TH','FR','SA'][day];
@@ -642,7 +650,8 @@ app.get('/api/slots', async (req,res)=>{
     const duration = Number(req.query.duration || 60);
     const requestedCourt = req.query.court == null || req.query.court === '' ? null : Number(req.query.court);
 
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
+    if(!validDateISO(date)) return res.status(400).json({ error:'date inválida (use YYYY-MM-DD)' });
+    if(!isCustomerBookingDate(date)) return res.status(400).json({ error:`A locação pode ser reservada somente até ${addDaysISO(todayISOInTimeZone(),7)} (7 dias à frente, incluindo hoje).` });
     if(![60,120].includes(duration)) return res.status(400).json({ error:'duration inválida (60 ou 120)' });
     if(requestedCourt !== null && ![1,2].includes(requestedCourt)) return res.status(400).json({ error:'court inválida (use 1 para aberta ou 2 para coberta)' });
 
@@ -669,7 +678,8 @@ app.post('/api/book', async (req,res)=>{
     const { date, start, duration, name, phone } = req.body || {};
     const requestedCourt = req.body?.court == null || req.body?.court === '' ? null : Number(req.body.court);
 
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
+    if(!validDateISO(String(date || ''))) return res.status(400).json({ error:'date inválida (YYYY-MM-DD)' });
+    if(!isCustomerBookingDate(date)) return res.status(400).json({ error:`A locação pode ser reservada somente até ${addDaysISO(todayISOInTimeZone(),7)} (7 dias à frente, incluindo hoje).` });
     if(!/^\d{2}:\d{2}$/.test(String(start || ''))) return res.status(400).json({ error:'start inválido (HH:MM)' });
 
     const dur = Number(duration || 60);
