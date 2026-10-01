@@ -145,6 +145,13 @@ function validateClassSettings(value){
   return '';
 }
 
+const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+const validDateISO = value => {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0,10) === value;
+};
+
 const DEFAULT_SITE_SETTINGS = {
   heroBadge: 'Nova experiência de areia em SJP',
   heroTitle: 'Sua quadra oficial de esportes de areia',
@@ -183,7 +190,6 @@ function validateSiteSettings(value){
   }
   const rental = value.rental;
   if(!rental || typeof rental !== 'object') return 'Confira as configurações da locação avulsa.';
-  const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
   for(const key of ['weekday','weekend']){
     const period = rental[key];
     if(!period || !validTime(period.start) || !validTime(period.end) || period.start >= period.end) return 'Confira os horários de abertura e fechamento da locação.';
@@ -1074,12 +1080,17 @@ app.get('/api/admin/reservations', adminAuth, async (req, res) => {
       .map(ev => {
         const start = ev.start?.dateTime || ev.start?.date || '';
         const end = ev.end?.dateTime || ev.end?.date || '';
+        const privateProps = ev.extendedProperties?.private || {};
+        const courtInfo = classifyEventToCourts(ev);
 
         return {
           eventId: ev.id,
           summary: ev.summary || '',
           customer: extractCustomerFromEvent(ev),
           phone: extractPhoneFromEvent(ev),
+          isAdminBlock: privateProps.adminBlock === 'true',
+          blockType: privateProps.adminBlockType || '',
+          court: courtInfo.kind === 'known' ? (courtInfo.blockBoth ? 'Ambas as quadras' : courtInfo.courts.map(courtLabel).join(', ')) : '',
           start,
           end
         };
@@ -1091,6 +1102,115 @@ app.get('/api/admin/reservations', adminAuth, async (req, res) => {
   }catch(e){
     console.error(e);
     return res.status(500).json({ error:'Erro ao buscar reservas.' });
+  }
+});
+
+// Bloqueios administrativos de agenda: reposições e eventos.
+app.get('/api/admin/agenda', adminAuth, async (req, res) => {
+  try{
+    const missing = requireEnv();
+    if(missing.length) return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    const from = String(req.query.from || new Date().toLocaleDateString('en-CA', { timeZone:TZ }));
+    const to = String(req.query.to || '');
+    if(!validDateISO(from) || !validDateISO(to) || from > to){
+      return res.status(400).json({ error:'Informe um intervalo de datas válido.' });
+    }
+    const spanDays = Math.ceil((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000);
+    if(spanDays > 120) return res.status(400).json({ error:'O intervalo máximo para consultar é de 120 dias.' });
+    await ensureAuth();
+    const response = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin:`${from}T00:00:00-03:00`,
+      timeMax:`${to}T23:59:59-03:00`,
+      timeZone:TZ,
+      singleEvents:true,
+      orderBy:'startTime',
+      maxResults:2500
+    });
+    const items = (response.data.items || []).filter(ev => ev.extendedProperties?.private?.adminBlock === 'true').map(ev => ({
+      eventId:ev.id,
+      type:ev.extendedProperties.private.adminBlockType || 'evento',
+      title:ev.extendedProperties.private.adminBlockTitle || ev.summary || '',
+      court:ev.extendedProperties.private.adminBlockCourt === '1' ? 'Quadra aberta' : ev.extendedProperties.private.adminBlockCourt === '2' ? 'Quadra coberta' : 'Ambas as quadras',
+      details:ev.description || '',
+      start:ev.start?.dateTime || ev.start?.date || '',
+      end:ev.end?.dateTime || ev.end?.date || ''
+    }));
+    return res.json({ ok:true, items });
+  }catch(error){
+    console.error('Erro ao consultar agenda administrativa:', error);
+    return res.status(500).json({ error:'Não foi possível carregar os bloqueios da agenda.' });
+  }
+});
+
+app.post('/api/admin/agenda', adminAuth, async (req, res) => {
+  try{
+    const missing = requireEnv();
+    if(missing.length) return res.status(500).json({ error:`Faltam variáveis de ambiente: ${missing.join(', ')}` });
+    const date = String(req.body?.date || '');
+    const start = String(req.body?.start || '');
+    const end = String(req.body?.end || '');
+    const type = String(req.body?.type || '');
+    const court = String(req.body?.court || '');
+    const title = String(req.body?.title || '').replace(/[\r\n]+/g, ' ').trim();
+    const details = String(req.body?.details || '').trim();
+    if(!validDateISO(date) || !validTime(start) || !validTime(end) || start >= end){
+      return res.status(400).json({ error:'Confira a data e os horários de início e término.' });
+    }
+    if(!['reposicao','evento'].includes(type)) return res.status(400).json({ error:'Escolha reposição de aula ou evento.' });
+    if(!['1','2','ambas'].includes(court)) return res.status(400).json({ error:'Escolha a quadra aberta, coberta ou ambas.' });
+    if(!title || title.length > 120 || details.length > 1000) return res.status(400).json({ error:'Informe um título de até 120 caracteres e detalhes de até 1000 caracteres.' });
+
+    await ensureAuth();
+    const currentEvents = await listEventsForDay(date);
+    const requestedCourts = court === 'ambas' ? [1,2] : [Number(court)];
+    const startMinutes = Number(start.slice(0,2))*60 + Number(start.slice(3,5));
+    const endMinutes = Number(end.slice(0,2))*60 + Number(end.slice(3,5));
+    for(const ev of currentEvents){
+      if(String(ev.start).length <= 10) return res.status(409).json({ error:'Já existe um evento de dia inteiro nessa data. Confira a agenda antes de marcar.' });
+      const eventStart = isoToMinutes(ev.start), eventEnd = isoToMinutes(ev.end);
+      if(!overlaps(startMinutes, endMinutes, eventStart, eventEnd)) continue;
+      const classification = classifyEventToCourts(ev);
+      if(classification.kind === 'unknownSingle') return res.status(409).json({ error:'Há um compromisso sem quadra identificada nesse horário. Confira a agenda antes de marcar.' });
+      if(classification.blockBoth || requestedCourts.some(value => classification.courts.includes(value))){
+        return res.status(409).json({ error:'Esse horário já está ocupado em uma das quadras selecionadas.' });
+      }
+    }
+
+    const courtLabelText = court === '1' ? 'Quadra aberta' : court === '2' ? 'Quadra coberta' : 'Ambas as quadras';
+    const courtClassifierText = court === 'ambas' ? 'Quadra aberta e Quadra coberta' : courtLabelText;
+    const typeLabel = type === 'reposicao' ? 'Reposição de aula' : 'Evento';
+    const summary = `${typeLabel} — ${courtClassifierText} — ${title}`;
+    const event = {
+      summary,
+      description:`Tipo: ${typeLabel}\nQuadra: ${courtClassifierText}\n${details ? `Detalhes: ${details}\n` : ''}Marcado pelo painel administrativo.`,
+      start:{ dateTime:toDateTimeISO(date, start), timeZone:TZ },
+      end:{ dateTime:toDateTimeISO(date, end), timeZone:TZ },
+      extendedProperties:{ private:{ adminBlock:'true', adminBlockType:type, adminBlockCourt:court, adminBlockTitle:title } }
+    };
+    const created = await calendar.events.insert({ calendarId:CALENDAR_ID, requestBody:event });
+    return res.status(201).json({ ok:true, item:{ eventId:created.data.id, type, title, court:courtLabelText, start:created.data.start?.dateTime || '', end:created.data.end?.dateTime || '' } });
+  }catch(error){
+    console.error('Erro ao marcar horário administrativo:', error);
+    return res.status(500).json({ error:'Não foi possível marcar esse horário.' });
+  }
+});
+
+app.delete('/api/admin/agenda/:eventId', adminAuth, async (req, res) => {
+  try{
+    const eventId = String(req.params.eventId || '').trim();
+    if(!eventId || eventId.length > 300) return res.status(400).json({ error:'Identificador do evento inválido.' });
+    await ensureAuth();
+    const existing = await calendar.events.get({ calendarId:CALENDAR_ID, eventId });
+    if(existing.data.extendedProperties?.private?.adminBlock !== 'true'){
+      return res.status(403).json({ error:'Somente bloqueios marcados pelo painel podem ser removidos por aqui.' });
+    }
+    await calendar.events.delete({ calendarId:CALENDAR_ID, eventId });
+    return res.json({ ok:true });
+  }catch(error){
+    if(error?.code === 404) return res.status(404).json({ error:'Esse bloqueio já foi removido.' });
+    console.error('Erro ao remover bloqueio administrativo:', error);
+    return res.status(500).json({ error:'Não foi possível remover esse bloqueio.' });
   }
 });
 
